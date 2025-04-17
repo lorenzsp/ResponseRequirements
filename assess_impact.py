@@ -14,7 +14,7 @@ from utils import *
 import os
 
 fpath = "new_orbits.h5"
-T = 1/12  # years
+T = 0.5/12  # years
 plot_orbit_3d(fpath, T)
 
 ################################################################
@@ -149,17 +149,19 @@ channel_generator = [get_response(orb_dev) for orb_dev in orbit_list]
 # Create results directory if it doesn't exist
 os.makedirs("results", exist_ok=True)
 # randomly draw the sky coordinates
-Ndraws = 10
+Ndraws = 5
 for f in [1e-4, 1e-3, 1e-2]:
     par_list = np.asarray([draw_parameters(A=A, f=f, fdot=fdot) for i in range(Ndraws)])
     fname = f"results/tdi_deviation_A{A}_f{f}_fdot{fdot}.h5"
+    print("------------------------------")
+    print("Saving to file: ", fname)
     with h5py.File(fname, "w") as h5file:
         h5file.create_dataset("sigma_vec", data=sigma_vec)
         h5file.create_dataset("parameters", data=par_list)
+        
         rms_dict = {}
         mismatch_dict = {}
         for realization in range(Ndraws):
-            print("------------------------------")
             print(realization, par_list[realization])
             chans = [channel_generator[i](*par_list[realization]) for i in range(len(channel_generator))]
             chans_default = gb_lisa_esa(*par_list[realization])
@@ -187,6 +189,7 @@ for f in [1e-4, 1e-3, 1e-2]:
                 mismatch = np.array(mismatch_list)
                 mismatch_dict[f"mismatch_real{realization}_sigma{delta_x}"] = mismatch
 
+        h5file.create_dataset("time", data=np.arange(len(chans_default[0])) * dt)
         # create delta_x group
         for delta_x in sigma_vec:
             # create rms and mismatch datasets
