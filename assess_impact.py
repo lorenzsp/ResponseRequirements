@@ -14,7 +14,7 @@ from utils import *
 import os
 
 fpath = "new_orbits.h5"
-T = 0.5/12  # years
+T = 1.0/12  # years
 plot_orbit_3d(fpath, T)
 
 ################################################################
@@ -149,7 +149,7 @@ channel_generator = [get_response(orb_dev) for orb_dev in orbit_list]
 # Create results directory if it doesn't exist
 os.makedirs("results", exist_ok=True)
 # randomly draw the sky coordinates
-Ndraws = 5
+Ndraws = 100
 for f in [1e-4, 1e-3, 1e-2]:
     par_list = np.asarray([draw_parameters(A=A, f=f, fdot=fdot) for i in range(Ndraws)])
     fname = f"results/tdi_deviation_A{A}_f{f}_fdot{fdot}.h5"
