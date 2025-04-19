@@ -97,6 +97,17 @@ class GBWave:
         hc = hSp * sin2psi + hSc * cos2psi
 
         return hp + 1j * hc
+    
+    def plot_input_hp_output_A(self, A, f, fdot, iota, phi0, psi, lam, beta, Response, T=1.0, dt=10.0):
+        hp = self.__call__(self, A, f, fdot, iota, phi0, psi, T=1.0, dt=10.0)[0]
+        chans = Response(A, f, fdot, iota, phi0, psi, lam, beta)
+        chans[1] = hp
+        fig, ax = plt.subplots(2, 1, sharex=True)
+        for i, lab in enumerate(["A", "h_plus"]):
+            ax[i].plot(np.arange(len(chans[0])) * dt / YRSID_SI, chans[i])
+            ax[i].set_ylabel(lab)
+        plt.savefig("TD_vars.png")
+
 
 
 class MyOrbits(Orbits):
@@ -647,7 +658,19 @@ class ESAOrbits(MyOrbits):
         super().__init__(fpath, *args, **kwargs)
 
 from matplotlib import pyplot as plt
-def plot_orbit_3d(fpath, T, Nshow=5, lam=None, beta=None, output_file="3d_orbit_around_sun.png"):
+def plot_orbit_3d(fpath, T, Nshow=5, lam=None, beta=None, output_file="3d_orbit_around_sun.png", scatter_points=None):
+    """
+    Plot the 3D orbit of the spacecraft around the Sun.
+
+    Args:
+        fpath: Path to the orbit file.
+        T: Time duration in years.
+        Nshow: Number of points to show.
+        lam: Longitude of the source in radians.
+        beta: Latitude of the source in radians.
+        output_file: Output file name for the plot.
+        scatter_points: List of tuples [(radius, lam, beta, color_function), ...] for additional 3D scatter points.
+    """
     fig = plt.figure(figsize=(10, 10))
     ax = fig.add_subplot(111, projection='3d')
     max_r = 0.0
@@ -675,25 +698,63 @@ def plot_orbit_3d(fpath, T, Nshow=5, lam=None, beta=None, output_file="3d_orbit_
     ax.plot(*sc3.T, 'o', linewidth=5)
 
     for i in range(len(sc1)):
-        ax.plot([sc1[i, 0], sc2[i, 0]], [sc1[i, 1], sc2[i, 1]], [sc1[i, 2], sc2[i, 2]], color='r', linewidth=1)
-        ax.plot([sc1[i, 0], sc3[i, 0]], [sc1[i, 1], sc3[i, 1]], [sc1[i, 2], sc3[i, 2]], color='r', linewidth=1)
-        ax.plot([sc2[i, 0], sc3[i, 0]], [sc2[i, 1], sc3[i, 1]], [sc2[i, 2], sc3[i, 2]], color='r', linewidth=1)
+        ax.plot([sc1[i, 0], sc2[i, 0]], [sc1[i, 1], sc2[i, 1]], [sc1[i, 2], sc2[i, 2]], color='r', linewidth=3)
+        ax.plot([sc1[i, 0], sc3[i, 0]], [sc1[i, 1], sc3[i, 1]], [sc1[i, 2], sc3[i, 2]], color='r', linewidth=3)
+        ax.plot([sc2[i, 0], sc3[i, 0]], [sc2[i, 1], sc3[i, 1]], [sc2[i, 2], sc3[i, 2]], color='r', linewidth=3)
+    np.linalg.norm(sc1, axis=1)[0]
+    # # Calculate the normal vector of the plane passing through the three spacecraft points
+    # vec1 = sc2[0] - sc1[0]
+    # vec2 = sc3[0] - sc1[0]
+    # normal = np.cross(vec1, vec2)
 
-    max_r = max(max_r, np.max(np.linalg.norm(sc1, axis=1)))
+    # # Define a grid of points for the plane
+    # d = -np.dot(normal, sc1[0])  # Plane equation: ax + by + cz + d = 0
+    # xx, yy = np.meshgrid(
+    #     np.linspace(-max_r, max_r, 100),
+    #     np.linspace(-max_r, max_r, 100)
+    # )
+    # zz = (-normal[0] * xx - normal[1] * yy - d) / normal[2]
 
-    ax.set_xlabel('X Position (min)')
-    ax.set_ylabel('Y Position (min)')
-    ax.set_zlabel('Z Position (min)')
+    # # Plot the plane
+    # ax.plot_surface(xx, yy, zz, alpha=0.5, color='cyan', edgecolor='none')
+    # max_r = max(max_r, np.max(np.linalg.norm(sc1, axis=1)))
+
+    # ax.set_xlabel('X Position (min)')
+    # ax.set_ylabel('Y Position (min)')
+    # ax.set_zlabel('Z Position (min)')
     ax.set_title("3D Plot of Orbital Positions")
     ax.scatter(0.0, 0.0, 0.0, color='orange', marker='o', label="Sun", s=100)
 
-    if (lam is not None)and (beta is not None):
+    if (lam is not None) and (beta is not None):
         ax.quiver(0, 0, 0, np.cos(beta) * np.cos(lam), np.cos(beta) * np.sin(lam), np.sin(beta), color='k', label="Source Location")
+
+    if scatter_points:
+        for radius, lam_s, beta_s, color_function in scatter_points:
+            radius = np.linalg.norm(sc1, axis=1)[0] * 1.2
+            x = radius * np.cos(beta_s) * np.cos(lam_s)
+            y = radius * np.cos(beta_s) * np.sin(lam_s)
+            z = radius * np.sin(beta_s)
+            # x += sc1[0,0]
+            # y += sc1[0,1]
+            # z += sc1[0,2]
+            ax.scatter(x, y, z, color=color_function, marker='o', s=100, alpha=0.5)#, label=f"Scatter Point (r={radius}, λ={lam_s}, β={beta_s})")
+            max_r = radius
     ax.legend()
+    # Remove axis ticks, labels, and background
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_zticks([])
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    ax.set_zticklabels([])
+    # ax.set_axis_off()
+    # remove axes from 
+    # plt.colorbar()
+    
     ax.set_xlim([-max_r, max_r])
     ax.set_ylim([-max_r, max_r])
     ax.set_zlim([-max_r, max_r])
-
+    # plt.show()
     plt.savefig(output_file)
     print(f"3D orbit plot saved to {output_file}")
 

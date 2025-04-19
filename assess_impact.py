@@ -22,7 +22,6 @@ use_gpu = False
 gb = GBWave(use_gpu=use_gpu )
 dt = 10.0
 
-
 def get_response(orbit):
     # default settings
     # order of the langrangian interpolation
@@ -150,8 +149,8 @@ channel_generator = [get_response(orb_dev) for orb_dev in orbit_list]
 os.makedirs("results", exist_ok=True)
 # randomly draw the sky coordinates
 Ndraws = 100
-for f in [1e-4, 1e-3, 1e-2]:
-    par_list = np.asarray([draw_parameters(A=A, f=f, fdot=fdot) for i in range(Ndraws)])
+par_list = np.asarray([draw_parameters(A=A, f=f, fdot=fdot) for i in range(Ndraws)])
+for f in [1e-4, 5e-4, 1e-3, 5e-3, 1e-2]:
     fname = f"results/tdi_deviation_A{A}_f{f}_fdot{fdot}.h5"
     print("------------------------------")
     print("Saving to file: ", fname)
@@ -163,8 +162,12 @@ for f in [1e-4, 1e-3, 1e-2]:
         mismatch_dict = {}
         for realization in range(Ndraws):
             print(realization, par_list[realization])
-            chans = [channel_generator[i](*par_list[realization]) for i in range(len(channel_generator))]
-            chans_default = gb_lisa_esa(*par_list[realization])
+            if use_gpu:
+                chans = [channel_generator[i](*par_list[realization]).get() for i in range(len(channel_generator))]
+                chans_default = gb_lisa_esa(*par_list[realization]).get()
+            else:
+                chans = [channel_generator[i](*par_list[realization]) for i in range(len(channel_generator))]
+                chans_default = gb_lisa_esa(*par_list[realization])
             
             # Save deviations for each delta_x
             for delta_x, chan in zip(sigma_vec, chans):
