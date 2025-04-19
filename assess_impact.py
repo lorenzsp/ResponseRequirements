@@ -14,13 +14,13 @@ from utils import *
 import os
 
 fpath = "new_orbits.h5"
-T = 1.0/12  # years
+T = 1.0#/12  # years
 plot_orbit_3d(fpath, T)
 
 ################################################################
 use_gpu = False
 gb = GBWave(use_gpu=use_gpu )
-dt = 10.0
+dt = 5.0
 
 def get_response(orbit):
     # default settings

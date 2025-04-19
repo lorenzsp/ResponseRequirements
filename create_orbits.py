@@ -13,7 +13,7 @@ logging.getLogger("lisainstrument").setLevel(logging.INFO)
 
 orbits_dt = 1000
 orbits_t0 = 2173211130.0 # s
-orbits_size = int(np.ceil(3600 * 24 * 365 / orbits_dt)) # a year, for illustration purposes
+orbits_size = int(np.ceil(3600 * 24 * 365 * 2 / orbits_dt)) # a year, for illustration purposes
 orbits_trim = 100
 
 from lisaorbits import KeplerianOrbits, OEMOrbits

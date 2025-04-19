@@ -717,7 +717,7 @@ def plot_orbit_3d(fpath, T, Nshow=5, lam=None, beta=None, output_file="3d_orbit_
 
     # # Plot the plane
     # ax.plot_surface(xx, yy, zz, alpha=0.5, color='cyan', edgecolor='none')
-    # max_r = max(max_r, np.max(np.linalg.norm(sc1, axis=1)))
+    max_r = max(max_r, np.max(np.linalg.norm(sc1, axis=1)))
 
     # ax.set_xlabel('X Position (min)')
     # ax.set_ylabel('Y Position (min)')
@@ -738,7 +738,7 @@ def plot_orbit_3d(fpath, T, Nshow=5, lam=None, beta=None, output_file="3d_orbit_
             # y += sc1[0,1]
             # z += sc1[0,2]
             ax.scatter(x, y, z, color=color_function, marker='o', s=100, alpha=0.5)#, label=f"Scatter Point (r={radius}, λ={lam_s}, β={beta_s})")
-            max_r = radius
+        max_r = radius
     ax.legend()
     # Remove axis ticks, labels, and background
     ax.set_xticks([])
