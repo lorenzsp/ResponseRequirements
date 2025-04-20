@@ -1,5 +1,18 @@
+
 # run with python as
 # nohup python assess_impact.py > out.out &
+import os, sys
+
+if len(sys.argv) > 2:
+    gb_frequency = [float(sys.argv[1])]
+else:
+    gb_frequency = [1e-4, 5e-4, 1e-3, 5e-3, 1e-2]  # Default frequency of GB binary
+
+# Get CUDA device and frequency of GB binary from command-line arguments
+if len(sys.argv) > 1:
+    cuda_device = int(sys.argv[2])
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(cuda_device)
+
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -13,7 +26,8 @@ from lisatools.utils.constants import *
 np.random.seed(2601)
 
 from utils import *
-import os
+
+
 
 fpath = "new_orbits.h5"
 T = 1.0  # years
@@ -141,9 +155,9 @@ plt.tight_layout()
 plt.savefig("orbits_deviation.png")
 
 # define GB default parameters
-A = 1.084702251e-22
+A = 1e-22
 f = 2.35962078e-3
-fdot = 1.47197271e-17
+fdot = 1.5e-17
 
 # decie how many variations
 channel_generator = [get_response(orb_dev) for orb_dev in orbit_list]
@@ -151,9 +165,13 @@ channel_generator = [get_response(orb_dev) for orb_dev in orbit_list]
 os.makedirs("results", exist_ok=True)
 # randomly draw the sky coordinates
 Ndraws = 500
-par_list = np.asarray([draw_parameters(A=A, f=f, fdot=fdot) for i in range(Ndraws)])
-for f in [1e-4, 5e-4, 1e-3, 5e-3, 1e-2]:
+for f in gb_frequency:
+    par_list = np.asarray([draw_parameters(A=A, f=f, fdot=fdot) for i in range(Ndraws)])
     fname = f"results/tdi_deviation_A{A}_f{f}_fdot{fdot}.h5"
+    if os.path.exists(fname):
+        print(f"File {fname} already exists. Skipping generation.")
+        continue
+
     print("------------------------------")
     print("Saving to file: ", fname)
         
