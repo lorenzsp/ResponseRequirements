@@ -15,8 +15,64 @@ results_dir = "results"
 h5file_name = "tdi_deviation.h5"  # Change this to the desired HDF5 file name
 list_h5 = glob.glob(os.path.join(results_dir, "*.h5"))
 print(list_h5)
+fig_mismatch, ax_mismatch = plt.subplots(3, 1, sharex=True, figsize=(5, 8))
+colors = {1e-2: "C0", 5e-3: "C1", 1e-3: "C2", 5e-4: "C3", 1e-4: "C4"}
+colors = {1.0: "C0", 3.0: "C1", 10.: "C2", 100: "C3"}
+for h5file_name in list_h5[:1]:
+    # Load data from the HDF5 file
+    with h5py.File(h5file_name, "r") as h5file:
+        h5file_name = h5file_name.split("/")[-1].split(".h5")[0]
+        # obtain frequency from name
+        frequency = [float(h5file_name.split("_f")[1].split("_")[0])]
 
-fig_mismatch, ax_mismatch = plt.subplots(3, 1, sharex=True, figsize=(8, 12))
+        sigma_vec = h5file["sigma_vec"][:]
+        Ndraws = len(h5file["parameters"][:])
+        time = h5file["time"][:]
+        # Initialize combined plots for RMS and mismatch
+        
+        # Process each delta_x
+        for delta_x in sigma_vec:
+            group_name = f"sigma_{int(delta_x)}"
+            rms_data = h5file[f"{group_name}/rms"][:]  # Shape: (Ndraws, 3, time)
+            mismatch_data = h5file[f"{group_name}/mismatch"][:]  # Shape: (Ndraws, 3, time)
+
+            # Compute mean and standard deviation for RMS and mismatch
+            mismatch_upp = np.quantile(mismatch_data, 0.975, axis=0)  # Shape: (3, time)
+            mismatch_low = np.quantile(mismatch_data, 0.025, axis=0)  # Shape: (3, time)
+            mismatch_median = np.quantile(mismatch_data, 0.5, axis=0)  # Shape: (3, time)
+            # Plot mismatch
+            for i, lab in enumerate(labels):
+                if (i==0)and(frequency[0] == 1e-4):
+                    lab_temp = f"{int(delta_x)}-sigma"
+                else:
+                    lab_temp = None
+                
+                ax_mismatch[i].errorbar(
+                    delta_x, [mismatch_median[i][-1]],
+                    yerr=[
+                        [mismatch_median[i][-1] - mismatch_low[i][-1]],
+                        [mismatch_upp[i][-1] - mismatch_median[i][-1]]
+                    ],
+                    fmt='o', alpha=0.8, label=lab_temp, color = colors[delta_x]
+                )
+                ax_mismatch[i].set_yscale("log")
+                ax_mismatch[i].set_xscale("log")
+
+        # Finalize mismatch plot
+        for i, lab in enumerate(labels):
+            ax_mismatch[i].set_ylabel(f"Mismatch {lab}")
+            ax_mismatch[i].legend(ncol=2)#fontsize="small", loc="upper right")
+            ax_mismatch[i].grid()
+        ax_mismatch[-1].set_xlabel("Sigma")
+        
+plt.tight_layout()
+plt.savefig(os.path.join(results_dir, f"sigma_mismatch_{h5file_name.split('.h5')[0]}.png"))
+plt.close(fig_mismatch)
+breakpoint()
+######################################################
+fig_mismatch, ax_mismatch = plt.subplots(3, 1, sharex=True, figsize=(5, 8))
+colors = {1e-2: "C0", 5e-3: "C1", 1e-3: "C2", 5e-4: "C3", 1e-4: "C4"}
+colors = {1.0: "C0", 3.0: "C1", 10.: "C2", 100: "C3"}
 for h5file_name in list_h5:
     # Load data from the HDF5 file
     with h5py.File(h5file_name, "r") as h5file:
@@ -30,7 +86,7 @@ for h5file_name in list_h5:
         # Initialize combined plots for RMS and mismatch
         
         # Process each delta_x
-        for delta_x in sigma_vec[1:2]:
+        for delta_x in sigma_vec:
             group_name = f"sigma_{int(delta_x)}"
             rms_data = h5file[f"{group_name}/rms"][:]  # Shape: (Ndraws, 3, time)
             mismatch_data = h5file[f"{group_name}/mismatch"][:]  # Shape: (Ndraws, 3, time)
@@ -41,8 +97,21 @@ for h5file_name in list_h5:
             mismatch_median = np.quantile(mismatch_data, 0.5, axis=0)  # Shape: (3, time)
             # Plot mismatch
             for i, lab in enumerate(labels):
-                ax_mismatch[i].loglog(frequency, mismatch_median[i][-1], 'o', alpha=0.8)
-                ax_mismatch[i].fill_between(frequency, mismatch_low[i][-1], mismatch_upp[i][-1], alpha=0.3, label=f"{int(delta_x)}-sigma")
+                if (i==0)and(frequency[0] == 1e-4):
+                    lab_temp = f"{int(delta_x)}-sigma"
+                else:
+                    lab_temp = None
+                
+                ax_mismatch[i].errorbar(
+                    frequency, [mismatch_median[i][-1]],
+                    yerr=[
+                        [mismatch_median[i][-1] - mismatch_low[i][-1]],
+                        [mismatch_upp[i][-1] - mismatch_median[i][-1]]
+                    ],
+                    fmt='o', alpha=0.8, label=lab_temp, color = colors[delta_x]
+                )
+                ax_mismatch[i].set_yscale("log")
+                ax_mismatch[i].set_xscale("log")
 
         # Finalize mismatch plot
         for i, lab in enumerate(labels):
@@ -54,7 +123,6 @@ for h5file_name in list_h5:
 plt.tight_layout()
 plt.savefig(os.path.join(results_dir, f"freq_mismatch_{h5file_name.split('.h5')[0]}.png"))
 plt.close(fig_mismatch)
-
 breakpoint()
 ######################################################
 for h5file_name in list_h5:

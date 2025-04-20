@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define GB frequencies and corresponding GPU IDs
-declare -a gb_frequencies=("5e-4" "1e-3" "5e-3" "1e-2")
+declare -a gb_frequencies=("2e-4" "3e-4" "2e-3" "3e-3")
 declare -a gpus=("0" "1" "4" "7")
 
 # Loop through frequencies and GPUs
