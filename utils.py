@@ -6,8 +6,11 @@ from dataclasses import dataclass
 import requests
 from copy import deepcopy
 import h5py
+try:
+    import cupy as xp
+except ImportError:
+    import numpy as xp
 from scipy import interpolate
-
 from lisatools.utils.constants import *
 from lisatools.utils.utility import get_array_module
 from lisatools.detector import Orbits
@@ -38,10 +41,12 @@ def draw_parameters(A=1e-22, f=1e-3, fdot=1e-17):
     if fdot is None:
         fdot = np.random.uniform(-1e-17, 1e-17)
     # draw random parameters
-    iota = np.random.uniform(0, np.pi)
+    cos_inc = np.random.uniform(-1, 1)  # Random cosines of polar angles
+    iota = np.arccos(cos_inc) #np.random.uniform(0, np.pi)
     phi0 = np.random.uniform(0, 2 * np.pi)
     psi = np.random.uniform(0, 2 * np.pi)
-    lam = np.random.uniform(-np.pi / 2, np.pi / 2)
+    cos_lam = np.random.uniform(-1, 1)  # Random cosines of polar angles
+    lam = np.arccos(cos_lam)-np.pi/2 # np.random.uniform(-np.pi / 2, np.pi / 2)
     beta = np.random.uniform(0.0, 2 * np.pi)
     return A, f, fdot, iota, phi0, psi, lam, beta
 
@@ -658,7 +663,7 @@ class ESAOrbits(MyOrbits):
         super().__init__(fpath, *args, **kwargs)
 
 from matplotlib import pyplot as plt
-def plot_orbit_3d(fpath, T, Nshow=5, lam=None, beta=None, output_file="3d_orbit_around_sun.png", scatter_points=None):
+def plot_orbit_3d(fpath, T, Nshow=10, lam=None, beta=None, output_file="3d_orbit_around_sun.png", scatter_points=None):
     """
     Plot the 3D orbit of the spacecraft around the Sun.
 

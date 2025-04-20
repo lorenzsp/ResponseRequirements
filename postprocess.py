@@ -6,7 +6,7 @@ import glob
 import healpy as hp
 from utils import plot_orbit_3d
 fpath = "new_orbits.h5"
-T = 1.0/12  # years
+T = 1.0  # years
 plot_orbit_3d(fpath, T)
 
 # Define constants
@@ -39,11 +39,11 @@ for h5file_name in list_h5:
             mismatch_median = np.quantile(mismatch_data, 0.5, axis=0)  # Shape: (3, time)
             # Plot mismatch
             for i, lab in enumerate(labels):
-                ax_mismatch[i].plot(time[5:]/86400, mismatch_median[i][5:], label=f"{int(delta_x)}-sigma", alpha=0.8)
+                ax_mismatch[i].plot(time[5:]/86400, mismatch_median[i][5:], alpha=0.8)
                 ax_mismatch[i].fill_between(time[5:]/86400, mismatch_low[i][5:], mismatch_upp[i][5:], alpha=0.3, label=f"{int(delta_x)}-sigma")
                 ax_mismatch[i].set_yscale("log")
-                ax_mismatch[i].axvline(14, linestyle="--", color="k")
-                ax_mismatch[i].axvline(28, linestyle="--", color="k")
+                [ax_mismatch[i].axvline(el, linestyle="--", color="k", alpha=0.3) for el in [14]]#
+                # ax_mismatch[i].axvline(28, linestyle="--", color="k")
                 # ax_mismatch[i].set_xscale("log")
 
         # Finalize mismatch plot

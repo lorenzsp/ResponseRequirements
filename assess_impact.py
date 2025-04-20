@@ -1,3 +1,5 @@
+# run with python as
+# nohup python assess_impact.py > out.out &
 import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -14,13 +16,13 @@ from utils import *
 import os
 
 fpath = "new_orbits.h5"
-T = 1.0#/12  # years
+T = 1.0  # years
 plot_orbit_3d(fpath, T)
 
 ################################################################
-use_gpu = False
+use_gpu = True
 gb = GBWave(use_gpu=use_gpu )
-dt = 5.0
+dt = 10.0
 
 def get_response(orbit):
     # default settings
@@ -63,7 +65,7 @@ def get_variation(time_vec, t_initial=0, period=14*86400, rho=1.0):
 
 # Create orbit objects
 fpath = "new_orbits.h5"
-orb_default = ESAOrbits(fpath)
+orb_default = ESAOrbits(fpath,use_gpu=use_gpu)
 deviation = {which: np.zeros_like(getattr(orb_default, which + "_base")) for which in ["ltt", "x", "n", "v"]}
 orb_default.configure(linear_interp_setup=True, deviation=deviation)
 # default orbit
@@ -82,12 +84,12 @@ sigma_cross =  1e3 * 1e3 /3#100e3
 list_sigma = [sigma_radial, sigma_along, sigma_cross]
 
 change = "x"
-sigma_vec = [1, 3, 10, 100]
+sigma_vec = [1, 3, 10]
 orbit_list = []
 
 for delta_x in sigma_vec:
     # create the deviation dictionary
-    orb_dev = ESAOrbits(fpath)
+    orb_dev = ESAOrbits(fpath,use_gpu=use_gpu)
     deviation = {which: np.zeros_like(getattr(orb_dev, which + "_base")) for which in ["ltt", "x", "n", "v"]}
     
     # time
@@ -148,51 +150,58 @@ channel_generator = [get_response(orb_dev) for orb_dev in orbit_list]
 # Create results directory if it doesn't exist
 os.makedirs("results", exist_ok=True)
 # randomly draw the sky coordinates
-Ndraws = 100
+Ndraws = 500
 par_list = np.asarray([draw_parameters(A=A, f=f, fdot=fdot) for i in range(Ndraws)])
 for f in [1e-4, 5e-4, 1e-3, 5e-3, 1e-2]:
     fname = f"results/tdi_deviation_A{A}_f{f}_fdot{fdot}.h5"
     print("------------------------------")
     print("Saving to file: ", fname)
+        
+    rms_dict = {}
+    mismatch_dict = {}
+    for realization in range(Ndraws):
+        
+        print(realization, par_list[realization])
+        print("Generating channels")
+        chans = [channel_generator[i](*par_list[realization]) for i in range(len(channel_generator))]
+        chans_default = gb_lisa_esa(*par_list[realization])
+        # if use_gpu:
+        #     chans = [[el.get() for el in chans[i]] for i in range(len(channel_generator))]
+        #     chans_default = [chans_default[i].get() for i in range(len(chans_default))]
+        print("Channels generated")
+
+        # Save deviations for each delta_x
+        for delta_x, chan in zip(sigma_vec, chans):
+
+            # Compute and save RMS
+            rms_list = []
+            for i, lab in enumerate(["A", "E", "T"]):
+                rms = xp.abs(chan[i] - chans_default[i]) / (2 * xp.mean(chans_default[i]**2))**0.5
+                window = 1000
+                rms = xp.convolve(rms, xp.ones(window) / window, mode='same')
+                rms_list.append(rms)
+            rms = xp.array(rms_list)
+            if use_gpu:
+                rms = xp.asnumpy(rms)
+            rms_dict[f"rms_real{realization}_sigma{delta_x}"] = rms[:,::100]
+            
+            # Compute and save mismatch
+            mismatch_list = []
+            for i, lab in enumerate(["A", "E", "T"]):
+                overlap = xp.cumsum(chan[i] * chans_default[i])
+                overlap /= (xp.cumsum(chans_default[i]**2) * xp.cumsum(chan[i]**2))**0.5
+                mismatch = xp.abs(1 - overlap)
+                mismatch_list.append(mismatch)
+            mismatch = xp.array(mismatch_list)
+            if use_gpu:
+                mismatch = xp.asnumpy(mismatch)
+            mismatch_dict[f"mismatch_real{realization}_sigma{delta_x}"] = mismatch[:,::100]
+        
     with h5py.File(fname, "w") as h5file:
         h5file.create_dataset("sigma_vec", data=sigma_vec)
         h5file.create_dataset("parameters", data=par_list)
-        
-        rms_dict = {}
-        mismatch_dict = {}
-        for realization in range(Ndraws):
-            print(realization, par_list[realization])
-            if use_gpu:
-                chans = [channel_generator[i](*par_list[realization]).get() for i in range(len(channel_generator))]
-                chans_default = gb_lisa_esa(*par_list[realization]).get()
-            else:
-                chans = [channel_generator[i](*par_list[realization]) for i in range(len(channel_generator))]
-                chans_default = gb_lisa_esa(*par_list[realization])
-            
-            # Save deviations for each delta_x
-            for delta_x, chan in zip(sigma_vec, chans):
 
-                # Compute and save RMS
-                rms_list = []
-                for i, lab in enumerate(["A", "E", "T"]):
-                    rms = np.abs(chan[i] - chans_default[i]) / (2 * np.mean(chans_default[i]**2))**0.5
-                    window = 1000
-                    rms = np.convolve(rms, np.ones(window) / window, mode='same')
-                    rms_list.append(rms)
-                rms = np.array(rms_list)
-                rms_dict[f"rms_real{realization}_sigma{delta_x}"] = rms
-                
-                # Compute and save mismatch
-                mismatch_list = []
-                for i, lab in enumerate(["A", "E", "T"]):
-                    overlap = np.cumsum(chan[i] * chans_default[i])
-                    overlap /= (np.cumsum(chans_default[i]**2) * np.cumsum(chan[i]**2))**0.5
-                    mismatch = np.abs(1 - overlap)
-                    mismatch_list.append(mismatch)
-                mismatch = np.array(mismatch_list)
-                mismatch_dict[f"mismatch_real{realization}_sigma{delta_x}"] = mismatch
-
-        h5file.create_dataset("time", data=np.arange(len(chans_default[0])) * dt)
+        h5file.create_dataset("time", data=np.arange(len(chans_default[0]))[::100] * dt)
         # create delta_x group
         for delta_x in sigma_vec:
             # create rms and mismatch datasets
@@ -202,53 +211,53 @@ for f in [1e-4, 5e-4, 1e-3, 5e-3, 1e-2]:
             h5file.create_dataset(f"sigma_{int(delta_x)}/rms", data=rms_to_save)
             h5file.create_dataset(f"sigma_{int(delta_x)}/mismatch", data=mism_to_save)
         
-        # Save plots as before
-        if realization == 0:
-            ###################################################
-            # deviation orbit
-            fig, ax = plt.subplots(3, 1, sharex=True)
-            ax[0].set_title("Deviations from Default Orbit")
-            # plot them
-            for i, lab in enumerate(["A", "E", "T"]):
-                ax[i].plot(np.arange(len(chans_default[0])) * dt / YRSID_SI, chans_default[i], 'k')
-                ax[i].set_ylabel(lab)
-                for delta_x, chan in zip(sigma_vec, chans):
-                    ax[i].plot(np.arange(len(chan[0])) * dt / YRSID_SI, chan[i], ':', label=f"{int(delta_x)}-sigma deviation", alpha=0.5)
-            ax[2].set_xlabel("Time [years]")
-            ax[2].legend()
-            plt.savefig(fname[:-3] + "_deviation_orbit.png")
+        # # Save plots as before
+        # if realization <0:
+        #     ###################################################
+        #     # deviation orbit
+        #     fig, ax = plt.subplots(3, 1, sharex=True)
+        #     ax[0].set_title("Deviations from Default Orbit")
+        #     # plot them
+        #     for i, lab in enumerate(["A", "E", "T"]):
+        #         ax[i].plot(np.arange(len(chans_default[0])) * dt / YRSID_SI, chans_default[i], 'k')
+        #         ax[i].set_ylabel(lab)
+        #         for delta_x, chan in zip(sigma_vec, chans):
+        #             ax[i].plot(np.arange(len(chan[0])) * dt / YRSID_SI, chan[i], ':', label=f"{int(delta_x)}-sigma deviation", alpha=0.5)
+        #     ax[2].set_xlabel("Time [years]")
+        #     ax[2].legend()
+        #     plt.savefig(fname[:-3] + "_deviation_orbit.png")
 
-            ###################################################
-            fig, ax = plt.subplots(3, 1, sharex=True)
-            ax[0].set_title("Root Mean Square from Default Orbit")
-            # plot them
-            for i, lab in enumerate(["A", "E", "T"]):
-                ax[i].set_ylabel("Relative Error " + lab)
-                for delta_x, chan in zip(sigma_vec, chans):
-                    rms = np.abs(chan[i] - chans_default[i]) / (2 * np.mean(chans_default[i]**2))**0.5
-                    window = 1000
-                    rms = np.convolve(rms, np.ones(window) / window, mode='same')
-                    new_time = np.arange(rms.shape[0]) * dt / YRSID_SI
-                    ax[i].semilogy(new_time, rms, ':', label=f"{int(delta_x)}-sigma deviation", alpha=0.5)
-            ax[2].set_xlabel("Time [years]")
-            ax[2].legend()
-            plt.legend()
-            plt.savefig(fname[:-3] + "_tdi_deviation.png")
+        #     ###################################################
+        #     fig, ax = plt.subplots(3, 1, sharex=True)
+        #     ax[0].set_title("Root Mean Square from Default Orbit")
+        #     # plot them
+        #     for i, lab in enumerate(["A", "E", "T"]):
+        #         ax[i].set_ylabel("Relative Error " + lab)
+        #         for delta_x, chan in zip(sigma_vec, chans):
+        #             rms = np.abs(chan[i] - chans_default[i]) / (2 * np.mean(chans_default[i]**2))**0.5
+        #             window = 1000
+        #             rms = np.convolve(rms, np.ones(window) / window, mode='same')
+        #             new_time = np.arange(rms.shape[0]) * dt / YRSID_SI
+        #             ax[i].semilogy(new_time, rms, ':', label=f"{int(delta_x)}-sigma deviation", alpha=0.5)
+        #     ax[2].set_xlabel("Time [years]")
+        #     ax[2].legend()
+        #     plt.legend()
+        #     plt.savefig(fname[:-3] + "_tdi_deviation.png")
 
-            ###################################################
-            # matched filtering
-            fig, ax = plt.subplots(3, 1, sharex=True)
-            ax[0].set_title("Mismatch from Default Orbit as a function of time")
-            # plot them
-            for i, lab in enumerate(["A", "E", "T"]):
-                ax[i].set_ylabel("Mismatch " + lab)
-                for delta_x, chan in zip(sigma_vec, chans):
-                    overlap = np.cumsum(chan[i] * chans_default[i])
-                    overlap /= (np.cumsum(chans_default[i]**2) * np.cumsum(chan[i]**2))**0.5
-                    overlap = np.abs(1 - overlap)
-                    ax[i].semilogy(np.arange(len(chan[0]))[10:] * dt / YRSID_SI, overlap[10:], ':', linewidth=5, label=f"{int(delta_x)}-sigma deviation", alpha=0.5)
-            ax[2].set_xlabel("Time [years]")
-            ax[2].legend()
-            plt.legend()
-            plt.savefig(fname[:-3] + "_mismatch.png")
-            plt.close("all")
+        #     ###################################################
+        #     # matched filtering
+        #     fig, ax = plt.subplots(3, 1, sharex=True)
+        #     ax[0].set_title("Mismatch from Default Orbit as a function of time")
+        #     # plot them
+        #     for i, lab in enumerate(["A", "E", "T"]):
+        #         ax[i].set_ylabel("Mismatch " + lab)
+        #         for delta_x, chan in zip(sigma_vec, chans):
+        #             overlap = np.cumsum(chan[i] * chans_default[i])
+        #             overlap /= (np.cumsum(chans_default[i]**2) * np.cumsum(chan[i]**2))**0.5
+        #             overlap = np.abs(1 - overlap)
+        #             ax[i].semilogy(np.arange(len(chan[0]))[10:] * dt / YRSID_SI, overlap[10:], ':', linewidth=5, label=f"{int(delta_x)}-sigma deviation", alpha=0.5)
+        #     ax[2].set_xlabel("Time [years]")
+        #     ax[2].legend()
+        #     plt.legend()
+        #     plt.savefig(fname[:-3] + "_mismatch.png")
+        #     plt.close("all")
