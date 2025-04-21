@@ -2,6 +2,8 @@
 ## Overview
 This repository contains code for impact of orbit uncertainty on LISA TDI outputs.
 
+![LISA orbits](3d_orbit_around_sun.png)
+
 ## Installation
 Follow these steps to set up the project on your local machine:
 
