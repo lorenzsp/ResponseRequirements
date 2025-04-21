@@ -676,7 +676,7 @@ def plot_orbit_3d(fpath, T, Nshow=10, lam=None, beta=None, output_file="3d_orbit
         output_file: Output file name for the plot.
         scatter_points: List of tuples [(radius, lam, beta, color_function), ...] for additional 3D scatter points.
     """
-    fig = plt.figure(figsize=(10, 10))
+    fig = plt.figure(figsize=(20, 10))
     ax = fig.add_subplot(111, projection='3d')
     max_r = 0.0
 
@@ -734,7 +734,7 @@ def plot_orbit_3d(fpath, T, Nshow=10, lam=None, beta=None, output_file="3d_orbit
     # ax.set_ylabel('Y Position (min)')
     # ax.set_zlabel('Z Position (min)')
     ax.set_title("3D Plot of Orbital Positions")
-    ax.scatter(0.0, 0.0, 0.0, color='orange', marker='o', label="Sun", s=300)
+    ax.scatter(0.0, 0.0, 0.0, color='orange', marker='o', label="Sun", s=500)
 
     if (lam is not None) and (beta is not None):
         ax.quiver(0, 0, 0, np.cos(beta) * np.cos(lam), np.cos(beta) * np.sin(lam), np.sin(beta), color='k', label="Source Location")
@@ -782,7 +782,8 @@ def plot_orbit_3d(fpath, T, Nshow=10, lam=None, beta=None, output_file="3d_orbit
     ax.set_ylim([-max_r, max_r])
     ax.set_zlim([-max_r, max_r])
     # plt.show()
-    plt.tight_layout()
+    # plt.tight_layout()
+    plt.subplots_adjust(left=-0.4, right=1.4, top=1.4, bottom=-0.4)
     plt.savefig(output_file)
     print(f"3D orbit plot saved to {output_file}")
 
