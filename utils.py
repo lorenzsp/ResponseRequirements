@@ -697,16 +697,22 @@ def plot_orbit_3d(fpath, T, Nshow=10, lam=None, beta=None, output_file="3d_orbit
     sc1 = sc1 - const_center * 0.9
     sc2 = sc2 - const_center * 0.9
     sc3 = sc3 - const_center * 0.9
-
+    
+    ax.plot(*sc1.T, color='tab:blue', linewidth=1, alpha=0.5, linestyle='-')
+    ax.plot(*sc2.T, color='tab:orange', linewidth=1, alpha=0.5, linestyle='-.')
+    ax.plot(*sc3.T, color='tab:green', linewidth=1, alpha=0.5, linestyle='--')
+    
+    # plot laser
+    for i in range(len(sc1)):
+        ax.plot([sc1[i, 0], sc2[i, 0]], [sc1[i, 1], sc2[i, 1]], [sc1[i, 2], sc2[i, 2]], color='r', linewidth=2)
+        ax.plot([sc1[i, 0], sc3[i, 0]], [sc1[i, 1], sc3[i, 1]], [sc1[i, 2], sc3[i, 2]], color='r', linewidth=2)
+        ax.plot([sc2[i, 0], sc3[i, 0]], [sc2[i, 1], sc3[i, 1]], [sc2[i, 2], sc3[i, 2]], color='r', linewidth=2)
+    
     ax.plot(*sc1.T, 'o', linewidth=5)
     ax.plot(*sc2.T, 'o', linewidth=5)
     ax.plot(*sc3.T, 'o', linewidth=5)
-
-    for i in range(len(sc1)):
-        ax.plot([sc1[i, 0], sc2[i, 0]], [sc1[i, 1], sc2[i, 1]], [sc1[i, 2], sc2[i, 2]], color='r', linewidth=3)
-        ax.plot([sc1[i, 0], sc3[i, 0]], [sc1[i, 1], sc3[i, 1]], [sc1[i, 2], sc3[i, 2]], color='r', linewidth=3)
-        ax.plot([sc2[i, 0], sc3[i, 0]], [sc2[i, 1], sc3[i, 1]], [sc2[i, 2], sc3[i, 2]], color='r', linewidth=3)
     np.linalg.norm(sc1, axis=1)[0]
+    
     # # Calculate the normal vector of the plane passing through the three spacecraft points
     # vec1 = sc2[0] - sc1[0]
     # vec2 = sc3[0] - sc1[0]
@@ -728,7 +734,7 @@ def plot_orbit_3d(fpath, T, Nshow=10, lam=None, beta=None, output_file="3d_orbit
     # ax.set_ylabel('Y Position (min)')
     # ax.set_zlabel('Z Position (min)')
     ax.set_title("3D Plot of Orbital Positions")
-    ax.scatter(0.0, 0.0, 0.0, color='orange', marker='o', label="Sun", s=100)
+    ax.scatter(0.0, 0.0, 0.0, color='orange', marker='o', label="Sun", s=300)
 
     if (lam is not None) and (beta is not None):
         ax.quiver(0, 0, 0, np.cos(beta) * np.cos(lam), np.cos(beta) * np.sin(lam), np.sin(beta), color='k', label="Source Location")
@@ -744,7 +750,23 @@ def plot_orbit_3d(fpath, T, Nshow=10, lam=None, beta=None, output_file="3d_orbit
             # z += sc1[0,2]
             ax.scatter(x, y, z, color=color_function, marker='o', s=100, alpha=0.5)#, label=f"Scatter Point (r={radius}, λ={lam_s}, β={beta_s})")
         max_r = radius
-    ax.legend()
+
+    # ax.legend()
+    # Adjust the inclination of the 3D plot view
+    ax.view_init(elev=20, azim=45)  # Set elevation and azimuthal angle
+    
+    # Add a background of stars
+    num_stars = 1000
+    star_x = np.random.uniform(-max_r * 1.5, max_r * 1.5, num_stars)
+    star_y = np.random.uniform(-max_r * 1.5, max_r * 1.5, num_stars)
+    star_z = np.random.uniform(-max_r * 1.5, max_r * 1.5, num_stars)
+    # ax.scatter(star_x, star_y, star_z, color='white', s=1, alpha=0.1, label="Stars")
+    # Set black background for the plot
+    ax.set_facecolor('black')
+    fig.patch.set_facecolor('black')
+    ax.set_axis_off()
+    ax.grid(False)
+
     # Remove axis ticks, labels, and background
     ax.set_xticks([])
     ax.set_yticks([])
@@ -760,6 +782,7 @@ def plot_orbit_3d(fpath, T, Nshow=10, lam=None, beta=None, output_file="3d_orbit
     ax.set_ylim([-max_r, max_r])
     ax.set_zlim([-max_r, max_r])
     # plt.show()
+    plt.tight_layout()
     plt.savefig(output_file)
     print(f"3D orbit plot saved to {output_file}")
 
