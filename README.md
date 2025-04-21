@@ -18,8 +18,16 @@ Follow these steps to set up the project on your local machine:
     ```bash
     conda create -n lisa_resp_env -c conda-forge gcc_linux-64 gxx_linux-64 numpy Cython scipy jupyter ipython h5py matplotlib python=3.12
     conda activate lisa_resp_env
-    export PATH=$PATH:/usr/local/cuda-12.5/bin/
-    pip install cupy-cuda12x
+    ```
+    
+    If you want to install on GPUs, add the location to the CUDA compiler `nvcc` and install cupy:
+    ```bash
+    export PATH=$PATH:/usr/local/cuda-12.5/
+    bin/pip install cupy-cuda12x
+    ```
+    
+    Then run:
+    ```bash
     git clone https://github.com/mikekatz04/lisa-on-gpu.git
     cd lisa-on-gpu
     python setup.py install
@@ -45,8 +53,8 @@ Contributions are welcome! Please follow these steps:
 4. Push to the branch: `git push origin feature-name`.
 5. Open a pull request.
 
-## License
-This project is licensed under the [License Name]. See the [LICENSE](LICENSE) file for details.
+<!-- ## License
+This project is licensed under the [License Name]. See the [LICENSE](LICENSE) file for details. -->
 
 ## Contact
-For questions or feedback, please contact [your email or GitHub profile link].  
+For questions or feedback, please contact [Lorenzo Speri](https://github.com/lorenzsp).
