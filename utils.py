@@ -16,6 +16,7 @@ from lisatools.utils.utility import get_array_module
 from lisatools.detector import Orbits
 import numpy as np
 np.random.seed(2601)
+from matplotlib import pyplot as plt
 # import for cpu/gpu
 from lisatools.cutils.detector_cpu import pycppDetector as pycppDetector_cpu
 
@@ -111,7 +112,7 @@ class GBWave:
         for i, lab in enumerate(["A", "h_plus"]):
             ax[i].plot(np.arange(len(chans[0])) * dt / YRSID_SI, chans[i])
             ax[i].set_ylabel(lab)
-        plt.savefig("TD_vars.png")
+        plt.savefig("TD_vars.png",dpi=300)
 
 
 
@@ -662,7 +663,122 @@ class ESAOrbits(MyOrbits):
         # super().__init__("esa-trailing-orbits.h5", *args, **kwargs)
         super().__init__(fpath, *args, **kwargs)
 
-from matplotlib import pyplot as plt
+
+def plot_sigma_vs_mismatch(result_dict, results_dir, labels):
+    """
+    Generate a plot of sigma vs mismatch for the given result dictionary.
+
+    Parameters:
+        result_dict (dict): Dictionary containing mismatch data.
+        results_dir (str): Directory to save the generated plot.
+        labels (list): List of labels for the mismatch channels.
+    """
+    fig_mismatch, ax_mismatch = plt.subplots(len(labels), 1, sharex=True, figsize=(5, 5))
+    colors = {1e-2: "C0", 5e-3: "C1", 2e-3: "C2", 1e-3: "C3", 5e-4: "C4", 2e-4: "C5", 1e-4: "C6"}
+
+    for h5file_name, data in result_dict.items():
+        # Obtain frequency from name
+        frequency = data["frequency"]
+        if frequency not in [5e-4, 1e-3, 1e-2]:
+            continue
+        sigma_vec = data["sigma_vec"]
+        mismatch_upp = data["mismatch_upp"]
+        mismatch_low = data["mismatch_low"]
+        mismatch_median = data["mismatch_median"]
+
+        # Process each delta_x
+        for inp in zip(sigma_vec, mismatch_upp, mismatch_low, mismatch_median):
+            delta_x, mismatch_upp, mismatch_low, mismatch_median = inp
+
+            # Plot mismatch
+            for i, lab in enumerate(labels):
+                if (i == 0) and (delta_x == sigma_vec[0]):
+                    lab_temp = f"$f=${frequency/1e-3:.1f} mHz"
+                else:
+                    lab_temp = None
+
+                ax_mismatch[i].errorbar(
+                    delta_x,
+                    [mismatch_median[i][-1]],
+                    yerr=[
+                        [mismatch_median[i][-1] - mismatch_low[i][-1]],
+                        [mismatch_upp[i][-1] - mismatch_median[i][-1]],
+                    ],
+                    fmt="o",
+                    alpha=0.8,
+                    label=lab_temp,
+                    color=colors[frequency],
+                )
+                ax_mismatch[i].set_yscale("log")
+                ax_mismatch[i].set_xscale("log")
+
+    # Finalize mismatch plot
+    for i, lab in enumerate(labels):
+        ax_mismatch[i].set_ylabel(f"Mismatch {lab}")
+        ax_mismatch[i].grid()
+    ax_mismatch[0].legend(ncol=1)
+    ax_mismatch[-1].set_xlabel("Sigma")
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(results_dir, "sigma_mismatch_plot.png"),dpi=300)
+    plt.close(fig_mismatch)
+
+def plot_frequency_vs_mismatch(result_dict, results_dir, labels):
+    """
+    Generate a plot of frequency vs mismatch for the given result dictionary.
+
+    Parameters:
+        result_dict (dict): Dictionary containing mismatch data.
+        results_dir (str): Directory to save the generated plot.
+        labels (list): List of labels for the mismatch channels.
+    """
+    fig_mismatch, ax_mismatch = plt.subplots(len(labels), 1, sharex=True, figsize=(5, 5))
+    colors = {1.0: "C0", 3.0: "C1", 10.0: "C2", 100: "C3"}
+
+    for h5file_name, data in result_dict.items():
+        frequency = data["frequency"]
+        sigma_vec = data["sigma_vec"]
+        mismatch_upp = data["mismatch_upp"]
+        mismatch_low = data["mismatch_low"]
+        mismatch_median = data["mismatch_median"]
+
+        # Process each delta_x
+        for inp in zip(sigma_vec, mismatch_upp, mismatch_low, mismatch_median):
+            delta_x, mismatch_upp, mismatch_low, mismatch_median = inp
+
+            # Plot mismatch
+            for i, lab in enumerate(labels):
+                if (i == 0) and (frequency == 1e-4):
+                    lab_temp = f"{int(delta_x)}-sigma"
+                else:
+                    lab_temp = None
+
+                ax_mismatch[i].errorbar(
+                    frequency,
+                    [mismatch_median[i][-1]],
+                    yerr=[
+                        [mismatch_median[i][-1] - mismatch_low[i][-1]],
+                        [mismatch_upp[i][-1] - mismatch_median[i][-1]],
+                    ],
+                    fmt="o",
+                    alpha=0.8,
+                    label=lab_temp,
+                    color=colors[delta_x],
+                )
+                ax_mismatch[i].set_yscale("log")
+                ax_mismatch[i].set_xscale("log")
+
+    # Finalize mismatch plot
+    for i, lab in enumerate(labels):
+        ax_mismatch[i].set_ylabel(f"Mismatch {lab}")
+        ax_mismatch[i].grid()
+    ax_mismatch[0].legend(ncol=2)
+    ax_mismatch[-1].set_xlabel("GW Frequency [Hz]")
+    plt.tight_layout()
+    plt.savefig(os.path.join(results_dir, "freq_mismatch_plot.png"),dpi=300)
+    plt.close(fig_mismatch)
+
+
 def plot_orbit_3d(fpath, T, Nshow=10, lam=None, beta=None, output_file="3d_orbit_around_sun.png", scatter_points=None):
     """
     Plot the 3D orbit of the spacecraft around the Sun.
@@ -760,7 +876,7 @@ def plot_orbit_3d(fpath, T, Nshow=10, lam=None, beta=None, output_file="3d_orbit
     ax.set_ylim([-max_r, max_r])
     ax.set_zlim([-max_r, max_r])
     # plt.show()
-    plt.savefig(output_file)
+    plt.savefig(output_file,dpi=300)
     print(f"3D orbit plot saved to {output_file}")
 
 ########################################
