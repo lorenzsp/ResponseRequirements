@@ -98,7 +98,7 @@ sigma_cross =  1e3 * 1e3 /3#100e3
 list_sigma = [sigma_radial, sigma_along, sigma_cross]
 
 change = "x"
-sigma_vec = [1, 3, 10]
+sigma_vec = [1, 3, 10, 100]
 orbit_list = []
 
 for delta_x in sigma_vec:
@@ -130,13 +130,15 @@ for delta_x, orb_dev in zip(sigma_vec, orbit_list):
     time_vec = orb_dev.t_base
     deviation_lof = orb_dev.deviation["x"][:, sc, :]
     # plot deviation
-    plt.semilogy(time_vec/YRSID_SI, np.linalg.norm(deviation_lof,axis=1)/1e3 ,label=f"{int(delta_x)}-sigma deviation", alpha=0.5)
-plt.ylim([1.0, 1e5])
-plt.xlabel("Time [years]")
+    plt.semilogy(time_vec/86400, np.linalg.norm(deviation_lof,axis=1)/1e3 ,label=f"{int(delta_x)}-sigma deviation", alpha=0.5)
+plt.xlim([0.0, 14*4])
+plt.ylim([1., 4e4])
+plt.xlabel("Time [days]")
 plt.legend()
 plt.ylabel("Deviation Radius [km]")
 plt.savefig("radius_deviation.png")
 coord_color = [(r"$x_{\rm ref} - x$ [km]", "g"), (r"$y_{\rm ref} - y$ [km]","b"), (r"$z_{\rm ref}- z$ [km]","r")]
+
 
 fig, ax = plt.subplots(3, 1, sharex=True)
 for orb_dev in orbit_list[:1]:
@@ -144,14 +146,18 @@ for orb_dev in orbit_list[:1]:
     arr_def = getattr(orb_default, change)
     for ii in range(3):
         for sc in range(1):
-            ax[ii].plot(np.arange(arr.shape[0]) * dt / YRSID_SI, (arr_def[:, sc, ii]-arr[:, sc, ii])/1e3, 
+            ax[ii].plot(np.arange(arr.shape[0]) * orb_default.dt / 86400, 
+                        (arr_def[:, sc, ii]-arr[:, sc, ii])/1e3, 
                         label=f"SC{sc}",color=coord_color[sc][1], alpha=0.3)
+            
         ax[ii].axhline(list_sigma[ii]/1e3, linestyle='--', color='k')
         ax[ii].axhline(-list_sigma[ii]/1e3, linestyle='--', color='k')
         ax[ii].set_ylabel(coord_color[ii][0])
-ax[2].set_xlabel("Time [years]")
-ax[0].set_title(f"SC Coordinates")
-plt.tight_layout()
+        # ax[ii].set_xlim(0, 30)
+        
+
+    ax[2].set_xlabel("Time [days]")
+plt.xlim([0.0, 30])
 plt.savefig("orbits_deviation.png")
 
 # define GB default parameters
@@ -164,10 +170,10 @@ channel_generator = [get_response(orb_dev) for orb_dev in orbit_list]
 # Create results directory if it doesn't exist
 os.makedirs("results", exist_ok=True)
 # randomly draw the sky coordinates
-Ndraws = 500
+Ndraws = 1000
 for f in gb_frequency:
     par_list = np.asarray([draw_parameters(A=A, f=f, fdot=fdot) for i in range(Ndraws)])
-    fname = f"results/tdi_deviation_A{A}_f{f}_fdot{fdot}.h5"
+    fname = f"results/new_tdi_deviation_A{A}_f{f}_fdot{fdot}.h5"
     if os.path.exists(fname):
         print(f"File {fname} already exists. Skipping generation.")
         continue
@@ -194,9 +200,10 @@ for f in gb_frequency:
             # Compute and save RMS
             rms_list = []
             for i, lab in enumerate(["A", "E", "T"]):
-                rms = xp.abs(chan[i] - chans_default[i]) / (2 * xp.mean(chans_default[i]**2))**0.5
-                window = 1000
-                rms = xp.convolve(rms, xp.ones(window) / window, mode='same')
+                # rms = xp.abs(chan[i] - chans_default[i]) / (2 * xp.mean(chans_default[i]**2))**0.5
+                # window = 1000
+                # rms = xp.convolve(rms, xp.ones(window) / window, mode='same')
+                rms = xp.abs(xp.fft.rfft(chan[i] - chans_default[i],axis=1))
                 rms_list.append(rms)
             rms = xp.array(rms_list)
             if use_gpu:
