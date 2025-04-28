@@ -11,6 +11,7 @@ try:
 except ImportError:
     import numpy as xp
 from scipy import interpolate
+from scipy.signal.windows import tukey
 from lisatools.utils.constants import *
 from lisatools.utils.utility import get_array_module
 from lisatools.detector import Orbits
@@ -73,17 +74,21 @@ def random_vectors_on_sphere(size):
     return np.column_stack((x, y, z))
 
 class GBWave:
-    def __init__(self, use_gpu=False):
+    def __init__(self, use_gpu=False, T=1.0, dt=10.0):
 
         if use_gpu:
             self.xp = xp
         else:
             self.xp = np
+        
+        
+        self.t = self.xp.arange(0.0, T * YRSID_SI, dt)
+        self.window = 1.0 # self.xp.asarray(tukey(len(self.t), alpha=0.01))
 
     def __call__(self, A, f, fdot, iota, phi0, psi, T=1.0, dt=10.0):
 
         # get the t array 
-        t = self.xp.arange(0.0, T * YRSID_SI, dt)
+        t = self.t
         cos2psi = self.xp.cos(2.0 * psi)
         sin2psi = self.xp.sin(2.0 * psi)
         cosiota = self.xp.cos(iota)
@@ -101,6 +106,10 @@ class GBWave:
 
         hp = hSp * cos2psi - hSc * sin2psi
         hc = hSp * sin2psi + hSc * cos2psi
+
+        # Apply a Tukey window to the signal with alpha=0.01
+        hp *= self.window
+        hc *= self.window
 
         return hp + 1j * hc
     
@@ -899,7 +908,7 @@ def plot_orbit_3d(fpath, T, Nshow=10, lam=None, beta=None, output_file="3d_orbit
     ax.set_zlim([-max_r, max_r])
     # plt.show()
     # plt.tight_layout()
-    plt.subplots_adjust(left=-0.4, right=1.4, top=1.4, bottom=-0.4)
+    # plt.subplots_adjust(left=-0.4, right=1.4, top=1.4, bottom=-0.4)
     plt.savefig(output_file,dpi=300)
     print(f"3D orbit plot saved to {output_file}")
 
