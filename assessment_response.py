@@ -400,7 +400,7 @@ gb_frequency = np.asarray([1e-3])#np.logspace(-4, -0.0, 10)
 fdot = 0.0
 # sky
 import healpy as hp
-nside = 8
+nside = 12
 npix = hp.nside2npix(nside)
 thetas, phis = hp.pix2ang(nside, np.arange(npix))
 # betas ecliptic latitude https://arxiv.org/pdf/2204.06633
@@ -496,7 +496,7 @@ for ff in gb_frequency:#tqdm(gb_frequency, desc="Processing frequency"):
     iota = 0.0 # np.arccos(np.random.uniform(-1, 1))
     phi0 = 0.0 # np.random.uniform(0, 2 * np.pi)
     temp = np.asarray([A, ff, 0.0, iota, phi0, psi, 0.0, 0.0])
-    h = gb_lisa_esa.generate_waveform(*temp, hp_flag=1.0, hc_flag=0.0)
+    h = gb_lisa_esa.generate_waveform(*temp, hp_flag=1.0, hc_flag=1.0)
     # plt.figure(); 
     # plt.plot(h.get(), label="default"); 
     # plt.plot(chans_default[0].get(), label="chans_default");

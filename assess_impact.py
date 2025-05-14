@@ -74,8 +74,28 @@ def get_variation(time_vec, t_initial=0, period=14*86400, rho=1.0):
     :return: 2D array of shape (len(time_vec), 3)
     """
     periodic = sawtooth(2 * np.pi * (time_vec-t_initial)/period)
-    return random_vectors_on_sphere(size=size)*rho*(1 + periodic[:,None])/2
-        
+    return random_vectors_on_sphere(size=size) * rho# * (1 + periodic[:,None])/2
+    # return np.ones_like(random_vectors_on_sphere(size=size)) * rho
+    
+    
+def compute_inn_and_den(fft_def, fft_dev, psd_, mask_sum, df):
+    """
+    Compute the inn and den quantities for FFT-based analysis.
+
+    :param fft_def: FFT of the default signal
+    :param fft_dev: FFT of the deviated signal
+    :param psd_: Power Spectral Density (PSD) values
+    :param mask_sum: Mask for the frequency range of interest
+    :param df: Frequency resolution
+    :return: Tuple containing inn and den values
+    """
+    matched_SNR = xp.sum(fft_def[mask_sum].conj() * fft_dev[mask_sum] / psd_).real * df
+    loglike_diff = xp.sum(xp.abs(fft_def[mask_sum] - fft_dev[mask_sum])**2 / psd_).real * df
+    snr_dev = xp.sum(fft_dev[mask_sum].conj() * fft_dev[mask_sum] / psd_).real * df
+    snr_def = xp.sum(fft_def[mask_sum].conj() * fft_def[mask_sum] / psd_).real * df
+    mismatch = xp.abs(1 - matched_SNR / xp.sqrt(snr_dev * snr_def))
+    print(f"matched_SNR: {matched_SNR}, snr_def: {snr_def}, snr_dev: {snr_dev}, mismatch: {mismatch}")
+    return matched_SNR, snr_def, snr_dev, mismatch, loglike_diff
 
 # Create orbit objects
 fpath = "new_orbits.h5"
@@ -90,11 +110,12 @@ gb_lisa_esa = get_response(orb_default)
 # worst from fig 24 file:///Users/lorenzo.speri/Downloads/s40295-021-00263-2.pdf
 # division by 3 because of the three sigma and multiply by 1e3 to convert to meters
 # radial
-sigma_radial = 1e3 * 1e3 /3 #50e3
+sig_ref = 1/1000
+sigma_radial = sig_ref * 1e3 /3 #50e3
 # along-track
-sigma_along = 1e3 * 1e3 /3#10e3
+sigma_along = sig_ref * 1e3 /3#10e3
 # cross-track
-sigma_cross =  1e3 * 1e3 /3#100e3
+sigma_cross =  sig_ref * 1e3 /3#100e3
 list_sigma = [sigma_radial, sigma_along, sigma_cross]
 
 change = "x"
@@ -161,19 +182,24 @@ plt.xlim([0.0, 30])
 plt.savefig("orbits_deviation.png")
 
 # define GB default parameters
-A = 1e-22
+A = 1e-18
 f = 2.35962078e-3
 fdot = 1.5e-17
+# import and interpolate psd ../EMRI-FoM/pipeline/TDI2_AE_psd.npy
+psd = np.load("../EMRI-FoM/pipeline/TDI2_AE_psd.npy")
+# interpolate the psd with a cubic spline
+from scipy.interpolate import CubicSpline
+psd_interp = CubicSpline(psd[:, 0], psd[:, 1])
 
 # decie how many variations
 channel_generator = [get_response(orb_dev) for orb_dev in orbit_list]
 # Create results directory if it doesn't exist
 os.makedirs("results", exist_ok=True)
 # randomly draw the sky coordinates
-Ndraws = 1000
+Ndraws = 10
 for f in gb_frequency:
     par_list = np.asarray([draw_parameters(A=A, f=f, fdot=fdot) for i in range(Ndraws)])
-    fname = f"results/new_tdi_deviation_A{A}_f{f}_fdot{fdot}.h5"
+    fname = f"results/test_deviation_A{A}_f{f}_fdot{fdot}.h5"
     if os.path.exists(fname):
         print(f"File {fname} already exists. Skipping generation.")
         continue
@@ -198,29 +224,49 @@ for f in gb_frequency:
         for delta_x, chan in zip(sigma_vec, chans):
 
             # Compute and save RMS
-            rms_list = []
+            res_list = []
             for i, lab in enumerate(["A", "E", "T"]):
                 # rms = xp.abs(chan[i] - chans_default[i]) / (2 * xp.mean(chans_default[i]**2))**0.5
                 # window = 1000
                 # rms = xp.convolve(rms, xp.ones(window) / window, mode='same')
-                rms = xp.abs(xp.fft.rfft(chan[i] - chans_default[i],axis=1))
-                rms_list.append(rms)
-            rms = xp.array(rms_list)
-            if use_gpu:
-                rms = xp.asnumpy(rms)
-            rms_dict[f"rms_real{realization}_sigma{delta_x}"] = rms[:,::100]
-            
-            # Compute and save mismatch
-            mismatch_list = []
-            for i, lab in enumerate(["A", "E", "T"]):
-                overlap = xp.cumsum(chan[i] * chans_default[i])
-                overlap /= (xp.cumsum(chans_default[i]**2) * xp.cumsum(chan[i]**2))**0.5
-                mismatch = xp.abs(1 - overlap)
-                mismatch_list.append(mismatch)
-            mismatch = xp.array(mismatch_list)
-            if use_gpu:
-                mismatch = xp.asnumpy(mismatch)
-            mismatch_dict[f"mismatch_real{realization}_sigma{delta_x}"] = mismatch[:,::100]
+                tukey_window = xp.asarray(tukey(len(chan[i]), alpha=0.5))
+                fft_f = xp.fft.rfftfreq(len(chan[i]), dt)
+                df = fft_f[1] - fft_f[0]
+                # mask_sum = (fft_f > f-1000*df) & (fft_f < f+1000*df)
+                mask_sum = (fft_f > 1e-5) & (fft_f < 1.0)
+                fft_def = xp.fft.rfft(chans_default[i]*tukey_window,axis=1)*dt
+                fft_dev = xp.fft.rfft(chan[i]*tukey_window,axis=1)*dt
+                
+                psd_ = xp.asarray(psd_interp(fft_f[mask_sum].get()))
+                df = fft_f[1] - fft_f[0]
+
+                # Replace the $SELECTION_PLACEHOLDER$ with a call to the function
+                matched_SNR, snr_def, snr_dev, mismatch, loglike_diff = compute_inn_and_den(fft_def, fft_dev, psd_, mask_sum, df)
+                # plot psd
+                # plt.figure()
+                # plt.loglog(fft_f[mask_sum].get(), psd_.get(), label="psd", alpha=0.5)
+                # # plot difference
+                # plt.loglog(fft_f[mask_sum].get(), xp.abs(fft_def[mask_sum] - fft_dev[mask_sum]).get()**2, label="def", alpha=0.5)
+                # plt.loglog(fft_f[mask_sum].get(), xp.abs(fft_def[mask_sum]).get()**2, label="def", alpha=0.5)
+                # plt.loglog(fft_f[mask_sum].get(), xp.abs(fft_dev[mask_sum]).get()**2, label="dev", alpha=0.5)
+                # plt.xlabel("Frequency [Hz]")
+                # plt.ylabel("Amplitude")
+                # plt.title(f"PSD and FFT for {lab} channel")
+                # plt.legend()
+                # plt.savefig(f"fft_{lab}.png")
+                # rms = xp.abs(1-xp.real(fft_dev[mask_sum].conj() * fft_def[mask_sum]).sum()/den)
+                # if i == 0:
+                #     plt.figure(); plt.loglog(fft_f[mask_sum].get(), xp.abs(fft_dev[mask_sum]).get(), label="dev", alpha=0.5); plt.loglog(fft_f[mask_sum].get(), xp.abs(fft_def[mask_sum]).get(), label="def", alpha=0.5); plt.savefig("fft_abs.png")
+                #     plt.figure(); plt.loglog(fft_f[mask_sum][::10].get(), xp.real(fft_dev[mask_sum].conj()*fft_def[mask_sum])[::10].get(), label="def", alpha=0.5); plt.savefig(f"fft_match.png")
+                #     breakpoint()
+                # # plt.figure(); plt.plot((chans_default[i] - chan[i]).get()); plt.savefig("fft.png")
+                
+
+                # print(delta_x, i, "RMS: ", rms)
+                res_ = dict(zip(["mismatch", "matched_SNR", "snr_def", "snr_dev", "loglike_diff"], [mismatch, matched_SNR, snr_def, snr_dev, loglike_diff]))
+                res_list.append(res_)
+
+            mismatch_dict[f"mismatch_real{realization}_sigma{delta_x}"] = np.asarray([res["mismatch"] for res in res_list])
         
     with h5py.File(fname, "w") as h5file:
         h5file.create_dataset("sigma_vec", data=sigma_vec)

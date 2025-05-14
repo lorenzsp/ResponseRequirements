@@ -22,37 +22,72 @@ T = 1.0
 
 # Define constants
 results_dir = "results"
-list_h5 = glob.glob(os.path.join(results_dir, "*.h5"))
+list_h5 = sorted( glob.glob(os.path.join(results_dir, "test_deviation*.h5")) )
 print(list_h5)
 labels = ["A", "T"]
 index_labels = np.array([0, 2],dtype=int)  # Assuming you want to plot channels A and T
 
+generate_dict = True
 result_dict = {}
-for h5file_name in list_h5:
-    # Load data from the HDF5 file
-    with h5py.File(h5file_name, "r") as h5file:
-        h5file_name = h5file_name.split("/")[-1].split(".h5")[0]
-        # obtain frequency from name
-        frequency = [float(h5file_name.split("_f")[1].split("_")[0])]
-        sigma_vec = h5file["sigma_vec"][:]
-        parameters = h5file["parameters"][:]  # Shape: (Ndraws, 8), assuming last two are lambda and beta
-        Ndraws = len(parameters)
-        time = h5file["time"][:]
+plt.figure(); 
+if generate_dict:
+    
+    for h5file_name in list_h5:
+        # Load data from the HDF5 file
+        with h5py.File(h5file_name, "r") as h5file:
+            print("Reading in ", h5file_name)
+            h5file_name = h5file_name.split("/")[-1].split(".h5")[0]
+            # obtain frequency from name
+            frequency = [float(h5file_name.split("_f")[1].split("_")[0])]
+            sigma_vec = h5file["sigma_vec"][:]
+            parameters = h5file["parameters"][:]  # Shape: (Ndraws, 8), assuming last two are lambda and beta
+            Ndraws = len(parameters)
+            downsample = 1
+            time = h5file["time"][::downsample]
+            # fft_f = h5file["fft_f"][:]
 
-        result_dict[h5file_name] = {"parameters": parameters, "sigma_vec": sigma_vec, "frequency": frequency[0], "Ndraws": Ndraws, "time": time, "mismatch_upp": [], "mismatch_low": [], "mismatch_median": []}
-        # Process each delta_x
-        for delta_x in sigma_vec:
-            group_name = f"sigma_{int(delta_x)}"
-            rms_data = h5file[f"{group_name}/rms"][:]  # Shape: (Ndraws, 3, time)
-            mismatch_data = h5file[f"{group_name}/mismatch"][:]  # Shape: (Ndraws, 3, time)
+            result_dict[h5file_name] = {"parameters": parameters, "sigma_vec": sigma_vec, "frequency": frequency[0], "Ndraws": Ndraws, 
+                                        "time": time, "rms_median": [], # "fft_f": fft_f, 
+                                        "mismatch_upp": [], "mismatch_low": [], "mismatch_median": [], "last_mismatch": []}
+            
+            # Process each delta_x
+            
+            for delta_x in sigma_vec[:1]:
+                print("Processing delta_x:", delta_x)
+                group_name = f"sigma_{int(delta_x)}"
+                rms_data = h5file[f"{group_name}/rms"]  # Shape: (Ndraws, 3, time)
+                mismatch_data = h5file[f"{group_name}/mismatch"][:,:,::downsample]  # Shape: (Ndraws, 3, time)
 
-            # Compute mean and standard deviation for RMS and mismatch
-            mismatch_upp = np.quantile(mismatch_data, 0.975, axis=0)[index_labels]  # Shape: (3, time)
-            mismatch_low = np.quantile(mismatch_data, 0.025, axis=0)[index_labels]  # Shape: (3, time)
-            mismatch_median = np.quantile(mismatch_data, 0.5, axis=0)[index_labels]  # Shape: (3, time)
-            result_dict[h5file_name]["mismatch_upp"].append(mismatch_upp)
-            result_dict[h5file_name]["mismatch_low"].append(mismatch_low)
-            result_dict[h5file_name]["mismatch_median"].append(mismatch_median)
+                # Compute mean and standard deviation for RMS and mismatch
+                mismatch_upp = np.quantile(mismatch_data, 0.975, axis=0)[index_labels]  # Shape: (3, time)
+                mismatch_low = np.quantile(mismatch_data, 0.025, axis=0)[index_labels]  # Shape: (3, time)
+                mismatch_median = np.quantile(mismatch_data, 0.5, axis=0)[index_labels]  # Shape: (3, time)
+                result_dict[h5file_name]["mismatch_upp"].append(mismatch_upp)
+                result_dict[h5file_name]["mismatch_low"].append(mismatch_low)
+                result_dict[h5file_name]["mismatch_median"].append(mismatch_median)
+                result_dict[h5file_name]["last_mismatch"].append(mismatch_data[:,:,-1])  # Shape: (Ndraws, 3)
+                # result_dict[h5file_name]["rms_data"].append(rms_data)
+                # compute mean and std for rms
+                result_dict[h5file_name]["rms_median"].append(np.median(rms_data, axis=0)[index_labels])  # Shape: (3, time)
+                print(frequency[0], np.median(rms_data, axis=0)[0])
+                plt.loglog(frequency[0], np.median(rms_data, axis=0)[0], 'o',label=f"$f_{{GW}}=${frequency[0]}", alpha=0.8)
+                
+                # rms_mean = np.mean(rms_data, axis=0)  # Shape: (3, time)
+                # rms_sum = np.sum(rms_mean**2, axis=-1)
+                # rms_std = np.std(rms_data, axis=0)  # Shape: (3, time)
+                # breakpoint()
+# plt.legend()
+plt.savefig("rms_median.png")
+# save result_dict 
+import pickle
+with open(os.path.join(results_dir, "result_dict.pkl"), "wb") as f:
+    pickle.dump(result_dict, f)
+# Load the result_dict from the pickle file
+# with open(os.path.join(results_dir, "result_dict.pkl"), "rb") as f:
+#     result_dict = pickle.load(f)
+# print(result_dict)
+# breakpoint()
+
 
 ######################################################
 # make plots

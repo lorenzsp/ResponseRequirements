@@ -85,7 +85,7 @@ class GBWave:
         self.t = self.xp.arange(0.0, T * YRSID_SI, dt)
         self.window = 1.0 # self.xp.asarray(tukey(len(self.t), alpha=0.01))
 
-    def __call__(self, A, f, fdot, iota, phi0, psi, T=1.0, dt=10.0):
+    def __call__(self, A, f, fdot, iota, phi0, psi, T=1.0, dt=10.0, hp_flag=1.0, hc_flag=1.0):
 
         # get the t array 
         t = self.t
@@ -101,16 +101,20 @@ class GBWave:
             - phi0
         )
 
-        hSp = -self.xp.cos(phase) * A * (1.0 + cosiota * cosiota)
-        hSc = -self.xp.sin(phase) * 2.0 * A * cosiota
+        hSp = -self.xp.cos(phase) * A * (1.0 + cosiota * cosiota) * hp_flag
+        hSc = -self.xp.sin(phase) * 2.0 * A * cosiota * hc_flag
 
         hp = hSp * cos2psi - hSc * sin2psi
         hc = hSp * sin2psi + hSc * cos2psi
 
+        # redefine
+        # hp = self.xp.cos(phase) * hp_flag
+        # hc = self.xp.cos(phase) * hc_flag
+
         # Apply a Tukey window to the signal with alpha=0.01
         hp *= self.window
         hc *= self.window
-
+        
         return hp + 1j * hc
     
     def plot_input_hp_output_A(self, A, f, fdot, iota, phi0, psi, lam, beta, Response, T=1.0, dt=10.0):
