@@ -16,7 +16,7 @@ plt.rcParams["legend.fontsize"] = 16
 
 import glob
 import healpy as hp
-from utils import plot_orbit_3d, plot_sigma_vs_mismatch, plot_frequency_vs_mismatch
+from assessment_utils import plot_orbit_3d, plot_sigma_vs_mismatch, plot_frequency_vs_mismatch
 fpath = "new_orbits.h5"
 T = 1.0
 

@@ -30,7 +30,7 @@ from scipy.optimize import differential_evolution
 np.random.seed(2601)
 from lisaorbits import StaticConstellation
 
-from utils import *
+from assessment_utils import *
 
 fpath = "new_orbits.h5"
 T = 30.0/365  # years

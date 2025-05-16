@@ -40,7 +40,7 @@ strain2x = compute_strain2x(f, betas, lambs, ltts, positions, orbits, A, E, T)
 # Generalized Error Analysis
 ##########################
 output_dirs = ["rotations/", "translations/", "armlengths/"]
-N = 10
+N = 100
 
 # Define perturbation parameters for each case
 perturbation_params = [

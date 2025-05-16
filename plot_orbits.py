@@ -9,7 +9,7 @@ from lisatools.utils.constants import *
 # make nice plots
 np.random.seed(2601)
 
-from utils import *
+from assessment_utils import *
 import os
 
 fpath = "new_orbits.h5"
