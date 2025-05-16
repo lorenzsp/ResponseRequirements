@@ -1047,3 +1047,37 @@ def check_lisa_model(model: Any) -> LISAModel:
         raise ValueError("model argument not given correctly.")
 
     return model
+
+
+
+def compute_information_matrix(A, delta_phi, rho_squared=1.0):
+    """
+    Compute the Fisher Information Matrix based on the second derivatives of the log-likelihood.
+
+    Parameters:
+        A (float): Amplitude scaling factor.
+        delta_phi (float): Phase difference in radians.
+        rho_squared (float): The squared signal-to-noise ratio (SNR), ρ².
+
+    Returns:
+        np.ndarray: 2x2 Fisher Information Matrix.
+    """
+    # Compute the second derivatives
+    d2L_dA2 = rho_squared  # -∂²_A ℒ
+    d2L_dphi2 = rho_squared * A * np.cos(delta_phi)  # -∂²_δφ ℒ
+    d2L_dAdphi = -rho_squared * np.sin(delta_phi)  # -∂_A ∂_δφ ℒ
+
+    # Construct the Fisher Information Matrix
+    fisher_matrix = np.array([
+        [d2L_dA2, d2L_dAdphi],
+        [d2L_dAdphi, d2L_dphi2]
+    ])
+
+    return fisher_matrix
+
+A = 1.0  # Example amplitude scaling factor
+delta_phi = 0.0  # Example phase difference in radians
+
+fisher_matrix = compute_information_matrix(A, delta_phi)
+print("Fisher Information Matrix:")
+print(fisher_matrix)

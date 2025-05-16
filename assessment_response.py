@@ -25,8 +25,10 @@ import h5py
 from myresponse import ResponseWrapper
 from astropy import units as un
 from lisatools.utils.constants import *
+from scipy.optimize import differential_evolution
 # make nice plots
 np.random.seed(2601)
+from lisaorbits import StaticConstellation
 
 from utils import *
 
@@ -91,7 +93,22 @@ def get_variation(time_vec, t_initial=0, period=14*86400, rho=1.0):
     res = random_vectors_on_sphere(size=size) * rho
     return res
     
-    
+
+def inner_product(fft_a, fft_b, psd_, mask_sum, df):
+    """
+    Compute the inner product of two FFT signals.
+
+    :param fft_a: FFT of the first signal
+    :param fft_b: FFT of the second signal
+    :param psd_: Power Spectral Density (PSD) values
+    :param mask_sum: Mask for the frequency range of interest
+    :param df: Frequency resolution
+    :return: Inner product value
+    """
+    inner_product_value = 4 * xp.sum(fft_a[:,mask_sum].conj() * fft_b[:,mask_sum] / psd_,axis=1).real * df
+    return inner_product_value
+
+
 def compute_inn_and_den(fft_def, fft_dev, psd_, mask_sum, df):
     """
     Compute the inn and den quantities for FFT-based analysis.
@@ -103,9 +120,9 @@ def compute_inn_and_den(fft_def, fft_dev, psd_, mask_sum, df):
     :param df: Frequency resolution
     :return: Tuple containing inn and den values
     """
-    d_h = 4 * xp.sum(fft_def[mask_sum].conj() * fft_dev[mask_sum] / psd_).real * df
-    d_d = 4 * xp.sum(fft_dev[mask_sum].conj() * fft_dev[mask_sum] / psd_).real * df
-    h_h = 4 * xp.sum(fft_def[mask_sum].conj() * fft_def[mask_sum] / psd_).real * df
+    d_h = inner_product(fft_def[None,...], fft_dev[None,...], psd_, mask_sum, df)[0]
+    d_d = inner_product(fft_dev[None,...], fft_dev[None,...], psd_, mask_sum, df)[0]
+    h_h = inner_product(fft_def[None,...], fft_def[None,...], psd_, mask_sum, df)[0]
     A_est = d_h / h_h
     tan_phi_est = 4 * xp.sum(fft_def[mask_sum].conj() * fft_dev[mask_sum] / psd_).imag * df / d_h
     Im = xp.sum(fft_def[mask_sum].conj() * fft_dev[mask_sum] / psd_).imag * df
@@ -121,39 +138,6 @@ def compute_inn_and_den(fft_def, fft_dev, psd_, mask_sum, df):
     # print("mismatch", mismatch, "snr", snr, "loglike_diff")
     return 1-A_est.get(), phi_est.get(), mismatch.get(), snr.get(), relative_diff_abs.mean().get(), diff_angle.mean().get()
 
-def compute_information_matrix(A, delta_phi, rho_squared=1.0):
-    """
-    Compute the Fisher Information Matrix based on the second derivatives of the log-likelihood.
-
-    Parameters:
-        A (float): Amplitude scaling factor.
-        delta_phi (float): Phase difference in radians.
-        rho_squared (float): The squared signal-to-noise ratio (SNR), ρ².
-
-    Returns:
-        np.ndarray: 2x2 Fisher Information Matrix.
-    """
-    # Compute the second derivatives
-    d2L_dA2 = rho_squared  # -∂²_A ℒ
-    d2L_dphi2 = rho_squared * A * np.cos(delta_phi)  # -∂²_δφ ℒ
-    d2L_dAdphi = -rho_squared * np.sin(delta_phi)  # -∂_A ∂_δφ ℒ
-
-    # Construct the Fisher Information Matrix
-    fisher_matrix = np.array([
-        [d2L_dA2, d2L_dAdphi],
-        [d2L_dAdphi, d2L_dphi2]
-    ])
-
-    return fisher_matrix
-
-A = 1.0  # Example amplitude scaling factor
-delta_phi = 0.0  # Example phase difference in radians
-
-fisher_matrix = compute_information_matrix(A, delta_phi)
-print("Fisher Information Matrix:")
-print(fisher_matrix)
-
-from lisaorbits import StaticConstellation
 
 def perturbed_static_orbits(arm_lengths, armlength_error, rotation_error, translation_error, rot_fac = 2.127):
     """ Apply perturbations to the static orbits 
@@ -241,10 +225,16 @@ def create_orb_dev(delta_x, fpath, use_gpu):
     Returns:
     ESAOrbits: The orb_dev object with configured deviations.
     """
+    
+    # temp = perturbed_static_orbits(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3)
+    # ref = perturbed_static_orbits(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=0, rotation_error=0., translation_error=0.)
+    
     # create the deviation dictionary
     orb_dev = ESAOrbits(fpath, use_gpu=use_gpu)
-    deviation = {which: np.zeros_like(getattr(orb_dev, which + "_base")) for which in ["ltt", "x", "n", "v"]}
-    
+    deviation = {which: np.zeros_like(getattr(orb_dev, which + "_base")) for which in ["t", "ltt", "x", "n", "v"]}
+    # vectors_deviation = {which: getattr(orb_dev, which + "_base") for which in ["t", "ltt", "x", "n", "v"]}
+    # breakpoint()
+
     # time
     time_vec = orb_dev.t_base
     xbase = orb_dev.x_base
@@ -262,11 +252,15 @@ def create_orb_dev(delta_x, fpath, use_gpu):
 
 
 # %%
-# Create orbit objects
-# fpath = "new_orbits.h5"
-orb_default = get_orbit(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=0.0, rotation_error=0.0, translation_error=0.0) #ESAOrbits(fpath,use_gpu=use_gpu)
+# Real setup
+fpath = "new_orbits.h5"
+orb_default = ESAOrbits(fpath, use_gpu=True)
 deviation = {which: np.zeros_like(getattr(orb_default, which + "_base")) for which in ["ltt", "x", "n", "v"]}
 orb_default.configure(linear_interp_setup=True, deviation=deviation)
+# setup Olaf
+# orb_default = get_orbit(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=0.0, rotation_error=0.0, translation_error=0.0)
+# deviation = {which: np.zeros_like(getattr(orb_default, which + "_base")) for which in ["ltt", "x", "n", "v"]}
+# orb_default.configure(linear_interp_setup=True, deviation=deviation)
 # default orbit
 gb_lisa_esa = get_response(orb_default)
 
@@ -287,18 +281,18 @@ sigma_vec = np.arange(0, 10)
 orbit_list = []
 
 for delta_x in sigma_vec:
-
-    # Replace the placeholder with the function call
-    # orb_dev = create_orb_dev(delta_x * list_sigma[0], fpath, use_gpu)
-    orb_dev = get_orbit(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3)
-
-    orb_dev.configure(linear_interp_setup=True, deviation=deviation)
+    # real setup
+    orb_dev = create_orb_dev(50e3, fpath, use_gpu=True)
+    
+    # setup olaf
+    # orb_dev = get_orbit(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3)
+    # orb_dev.configure(linear_interp_setup=True)
     orbit_list.append(orb_dev)
 
 
 # %%
-plot_orbit_3d("temp_orbit.h5", T)
-plt.savefig("temp_orbit.png")
+# plot_orbit_3d("temp_orbit.h5", T)
+# plt.savefig("temp_orbit.png")
 
 # %%
 coord_color = [(r"$x_{\rm ref} - x$ [km]", "C0"), (r"$y_{\rm ref} - y$ [km]","C1"), (r"$z_{\rm ref}- z$ [km]","C2")]
@@ -371,19 +365,10 @@ plt.figure()
 sc = 0
 for sc in range(3):
     for delta_x, orb_dev in zip(sigma_vec[:1], orbit_list[:1]):
-        # plot the deviation
         time_vec = orb_dev.t
-        # deviation_lof = orb_dev.deviation["x"][:, sc, :]
         deviation_lof = orb_dev.x[:, sc, :] - orb_default.x[:, sc, :]
-        # plot deviation
-        # print(deviation_lof)
-        # print(delta_x, np.diff(np.linalg.norm(deviation_lof,axis=1))/1e3 )
-
         plt.semilogy(time_vec/86400, np.linalg.norm(deviation_lof,axis=1)/1e3 ,label=f"deviation sc{sc}", alpha=0.5)
-
 plt.axhline(1e3, linestyle='--', color='k', label="3 sigma Reference from ESA")
-# plt.xlim([0.0, 7])
-# plt.ylim([0.5, 4e4])
 plt.xlabel("Time [days]")
 plt.legend()
 plt.ylabel("Deviation Radius [km]")
@@ -400,7 +385,7 @@ gb_frequency = np.asarray([1e-3])#np.logspace(-4, -0.0, 10)
 fdot = 0.0
 # sky
 import healpy as hp
-nside = 12
+nside = 6
 npix = hp.nside2npix(nside)
 thetas, phis = hp.pix2ang(nside, np.arange(npix))
 # betas ecliptic latitude https://arxiv.org/pdf/2204.06633
@@ -419,7 +404,7 @@ import time
 from tqdm import tqdm
 dt = 0.25
 T = 1.0/365
-Number_of_deviations = 2
+Number_of_deviations = 10
 for _ in range(Number_of_deviations):
     orb_dev = get_orbit(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3)
     orb_dev.configure(linear_interp_setup=True)
@@ -427,6 +412,40 @@ for _ in range(Number_of_deviations):
 
 channel_generator = [get_response(orb_dev, T=T, dt=0.25) for orb_dev in orbit_list]
 gb_lisa_esa = get_response(orb_default, T=T, dt=0.25)
+
+def maximize_snr_over_params(param, channel_generator, dt):
+    # h_injection
+    h_inj = gb_lisa_esa.generate_waveform(*param)
+    d_inj = xp.asarray(channel_generator[0].apply_response(h_inj, param[6], param[7]))
+    # detail
+    N = d_inj[0].shape[0]
+    tukey_window = xp.asarray(tukey(N, alpha=0.01))
+    fft_f = xp.fft.rfftfreq(N, dt)
+    df = fft_f[1] - fft_f[0]
+    delta_w = 10 * df
+    mask_sum = (fft_f > param[1] - delta_w) * (fft_f < param[1] + delta_w)
+    # psd_ = 1.0
+    psd_ = xp.asarray(psd_interp(fft_f[mask_sum].get()))[None,:]
+    
+    # fix injection
+    ffts_d = xp.asarray([xp.fft.rfft(d_inj * tukey_window, axis=1) * dt for i in range(len(channel_generator))])
+    def msnr(temp_par):
+        temp_template = xp.fft.rfft(xp.asarray(gb_lisa_esa.apply_response(gb_lisa_esa.generate_waveform(*temp_par), temp_par[6], temp_par[7])) * tukey_window ,axis=1) * dt
+        d_h = inner_product(ffts_d[0], temp_template, psd_, mask_sum, df).sum()
+        h_h = inner_product(temp_template, temp_template, psd_, mask_sum, df).sum()
+        msnr = d_h / h_h**0.5
+        return -msnr.get()
+    
+    d_d = inner_product(ffts_d[0], ffts_d[0], psd_, mask_sum, df).sum()
+    mismatch = -msnr(param)/d_d**0.5
+    print("Matched SNR", -msnr(param), "Mismatch", mismatch)
+    # iota, phi0, psi, lambs, betas
+
+    bounds = [(0, 1e-15), (1e-4, 1.0), (0, 1e-20), (0, np.pi), (0, 2*np.pi), (0, 2*np.pi), (0.0, 2*np.pi), (-np.pi/2, np.pi/2)]
+    de = differential_evolution(msnr, bounds, maxiter=50, disp=True, x0=param)
+    best_fit = de.x
+    print("Best fit", best_fit, "Difference", best_fit - param)
+
 
 def process_realization(param, h, chans_default, channel_generator, psd_interp, dt):
     """
@@ -454,8 +473,8 @@ def process_realization(param, h, chans_default, channel_generator, psd_interp, 
     # print("fmin fmax", fft_f[mask_sum].min(), fft_f[mask_sum].max())
     fft_def = xp.fft.rfft(chans_default * tukey_window, axis=1) * dt
     
-    # psd_ = xp.asarray(psd_interp(fft_f[mask_sum].get()))
-    psd_ = 1.0
+    psd_ = xp.asarray(psd_interp(fft_f[mask_sum].get()))
+    # psd_ = 1.0
     
     # toc = time.time()
     # print("time to compute FFT", toc-tic, len(channel_generator))
@@ -474,6 +493,9 @@ param = np.asarray([A, 1e-3, fdot, 0.0, 0.0, 0.0, 0.0, 0.0])
 h = gb_lisa_esa.generate_waveform(*param, hp_flag=1.0, hc_flag=0.0)
 # test with no deviation
 chans_default = xp.asarray(gb_lisa_esa.apply_response(h, param[6], param[7]) )
+
+# maximize_snr_over_params(param, channel_generator, dt)
+# breakpoint()
 process_realization(param=param, h=h, chans_default=chans_default, channel_generator=channel_generator[:Number_of_deviations],psd_interp=psd_interp,dt=dt)
 # print(process_realization(param=param, h=h, chans_default=chans_default, channel_generator=[gb_lisa_esa],psd_interp=psd_interp,dt=dt))
 print("Number of points", chans_default[0].shape[0])
@@ -496,7 +518,7 @@ for ff in gb_frequency:#tqdm(gb_frequency, desc="Processing frequency"):
     iota = 0.0 # np.arccos(np.random.uniform(-1, 1))
     phi0 = 0.0 # np.random.uniform(0, 2 * np.pi)
     temp = np.asarray([A, ff, 0.0, iota, phi0, psi, 0.0, 0.0])
-    h = gb_lisa_esa.generate_waveform(*temp, hp_flag=1.0, hc_flag=1.0)
+    h = gb_lisa_esa.generate_waveform(*temp, hp_flag=1.0, hc_flag=0.0)
     # plt.figure(); 
     # plt.plot(h.get(), label="default"); 
     # plt.plot(chans_default[0].get(), label="chans_default");
@@ -535,7 +557,7 @@ colors = {"Amplitude": "C0", "Phase": "C1", "Mismatch": "C2"}
 for key, ind in indices.items():
     plt.figure(figsize=(5, 4))
     for f in gb_frequency:
-        temp_arr = np.asarray([el[tdi] for el in results_dict[f]])[:, 0, ind]
+        temp_arr = np.asarray([el[tdi] for el in results_dict[f]])[:, :, ind]
         res_list = np.abs(temp_arr.flatten())
         
         plt.plot(f*np.ones_like(res_list), res_list, "o", alpha=0.1, color="C0")
