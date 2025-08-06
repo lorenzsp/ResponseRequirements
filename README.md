@@ -16,22 +16,26 @@ Follow these steps to set up the project on your local machine:
 2. **Install dependencies**:
     Ensure you have conda installed. Then run:
     ```bash
-    conda create -n lisa_resp_env -c conda-forge gcc_linux-64 gxx_linux-64 numpy Cython scipy jupyter ipython h5py matplotlib python=3.12
-    conda activate lisa_resp_env
+    conda create -n lisa_resp -c conda-forge gcc_linux-64 gxx_linux-64 numpy Cython scipy jupyter ipython h5py matplotlib python=3.12
+    conda activate lisa_resp
     ```
     
     If you want to install on GPUs, add the location to the CUDA compiler `nvcc` and install cupy:
     ```bash
     export PATH=$PATH:/usr/local/cuda-12.5/
-    bin/pip install cupy-cuda12x
+    pip install cupy-cuda12x
     ```
     
     Then run:
     ```bash
     git clone https://github.com/mikekatz04/lisa-on-gpu.git
     cd lisa-on-gpu
-    python setup.py install
-    pip install lisaorbits lisaanalysistools
+    python scripts/prebuild.py
+    pip install .
+    pip install lisaorbits healpy
+    git clone https://github.com/mikekatz04/LISAanalysistools.git
+    cd LISAanalysistools/
+    pip install .
     ```
 
 ## Usage

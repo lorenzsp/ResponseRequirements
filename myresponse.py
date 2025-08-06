@@ -4,7 +4,6 @@ from typing import Optional, List
 import warnings
 from typing import Tuple
 from copy import deepcopy
-import fastlisaresponse
 
 try:
     import cupy as cp
