@@ -8,6 +8,9 @@ except ImportError:
 from scipy.signal.windows import tukey
 from scipy.interpolate import CubicSpline
 
+import healpy as hp
+from tqdm import tqdm
+
 psd = np.load("TDI2_AE_psd.npy")
 # interpolate the psd with a cubic spline
 psd_interp = CubicSpline(psd[:, 0], psd[:, 1])
@@ -20,6 +23,14 @@ def inner_product(a, b, dt=1.0):
     f_fft[0] = f_fft[1]  # Avoid division by zero
     psd = xp.asarray(psd_interp(f_fft.get()))
     return 4 * xp.sum(xp.conj(a_fft) * b_fft / psd, axis=1).real * df
+
+def get_sky_grid(nside):
+    npix = hp.nside2npix(nside)
+    thetas, phis = hp.pix2ang(nside, np.arange(npix))
+    betas = np.pi / 2 - thetas  # ecliptic latitude
+    lambs = phis                # ecliptic longitude
+    gw_response_map = np.zeros(npix)
+    return betas, lambs, gw_response_map
 
 if __name__=="__main__":
     # Example usage
@@ -65,15 +76,9 @@ if __name__=="__main__":
     plt.title('TDI Channels over Time')
     plt.legend()
     plt.savefig('tdi_channels.png', dpi=300)
-    
-    import healpy as hp
-    from tqdm import tqdm
+
     nside = 4
-    npix = hp.nside2npix(nside)
-    thetas, phis = hp.pix2ang(nside, np.arange(npix))
-    # betas ecliptic latitude https://arxiv.org/pdf/2204.06633
-    betas, lambs = np.pi / 2 - thetas, phis
-    gw_response_map = np.zeros(npix)
+    betas, lambs, gw_response_map = get_sky_grid(nside)
     h_strain = gb_response.generate_waveform(*param[:-2])
     for ii in tqdm(range(len(betas)), desc="Processing sky"):
         param[6], param[7] = lambs[ii], betas[ii]
@@ -86,3 +91,22 @@ if __name__=="__main__":
     hp.mollview(gw_response_map, title="GW Response Map", unit="SNR", cmap="viridis", norm="log")
     hp.graticule()
     plt.savefig("gw_response_map.png", dpi=300)
+
+    import time
+    # mismatch analysis
+    start = time.time()
+    static_orb_deviation = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=86400., T=T)
+    gb_response_deviation = get_response(static_orb_deviation, dt=dt, T=T, use_gpu=True)
+    end = time.time()
+    print(f"Time taken for response with deviation: {end - start:.2f} seconds")
+    start = time.time()
+    AET_deviation = xp.asarray(gb_response_deviation(*param))
+    max_length = min(AET.shape[1], AET_deviation.shape[1])
+    AET = AET[:, :max_length]
+    AET_deviation = AET_deviation[:, :max_length]
+    h_hdev = inner_product(AET, AET_deviation, dt=dt)**0.5
+    h_h = inner_product(AET, AET, dt=dt)**0.5
+    hdev_hdev = inner_product(AET_deviation, AET_deviation, dt=dt)**0.5
+    mismatch = 1 - (h_hdev / (h_h * hdev_hdev)**0.5)
+    end = time.time()
+    print(f"Mismatch with deviation: {mismatch}", f"Time taken: {end - start:.2f} seconds")
