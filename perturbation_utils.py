@@ -303,12 +303,19 @@ def create_orbit_with_periodic_dev(delta_x, fpath, use_gpu):
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    static_orb = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=0.0, rotation_error=0.0, translation_error=0.0, dt=10., T=1.0)
-    static_orb_dev = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=10., T=1.0)
+    import time
+    static_orb = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=0.0, rotation_error=0.0, translation_error=0.0, dt=1000., T=1.0)
+    start = time.time()
+    static_orb_dev = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=1000., T=1.0)
+    end = time.time()
+    print("Time to create static orbit with deviations:", end - start)
     
     periodic_orb = create_orbit_with_periodic_dev(delta_x=0.0, fpath="new_orbits.h5", use_gpu=True)
+    start = time.time()
     periodic_orb_dev = create_orbit_with_periodic_dev(delta_x=50e3, fpath="new_orbits.h5", use_gpu=True)
-    
+    end = time.time()
+    print("Time to create periodic orbit with deviations:", end - start)
+
     for orb_dev, orb_default, name in [(periodic_orb_dev, periodic_orb, "evolving"), (static_orb_dev, static_orb, "static")]:
         plot_orbit_3d(orb_dev, T=1.0, output_file=f"{name}_orbit_3d.png")
         ##############################################################
