@@ -60,5 +60,12 @@ Contributions are welcome! Please follow these steps:
 <!-- ## License
 This project is licensed under the [License Name]. See the [LICENSE](LICENSE) file for details. -->
 
+## TODO:
+- check which variables Mike's and which interpolation method is used in the CUDA c++ and cadence
+- check the impact of dt on the results and check GB
+- as a function of the constellation errors see the impact on the mismatch
+- setup overleaf
+
+
 ## Contact
 For questions or feedback, please contact [Lorenzo Speri](https://github.com/lorenzsp).

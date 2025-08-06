@@ -15,14 +15,25 @@ psd = np.load("TDI2_AE_psd.npy")
 # interpolate the psd with a cubic spline
 psd_interp = CubicSpline(psd[:, 0], psd[:, 1])
 
-def inner_product(a, b, dt=1.0):
+def inner_product(a, b, dt=1.0, fmin=1e-4, fmax=1.0):
     a_fft = xp.fft.rfft(a, axis=1) * dt
     b_fft = xp.fft.rfft(b, axis=1) * dt
     f_fft = xp.fft.rfftfreq(a.shape[1], dt)
     df = f_fft[1] - f_fft[0]
     f_fft[0] = f_fft[1]  # Avoid division by zero
     psd = xp.asarray(psd_interp(f_fft.get()))
-    return 4 * xp.sum(xp.conj(a_fft) * b_fft / psd, axis=1).real * df
+    mask = (f_fft >= fmin) & (f_fft <= fmax)
+    a_fft = a_fft[:, mask]
+    b_fft = b_fft[:, mask]
+    psd = psd[mask]
+    if xp.isnan(psd).any():
+        raise ValueError("NaN values found in PSD")
+    if xp.isinf(a_fft).any() or xp.isinf(b_fft).any():
+        raise ValueError("Infinite values found in FFTs")
+    result = 4 * xp.sum(xp.conj(a_fft) * b_fft / psd, axis=1).real * df
+    if xp.isnan(result).any():
+        raise ValueError("NaN values found in inner product result")
+    return result
 
 def get_sky_grid(nside):
     npix = hp.nside2npix(nside)
@@ -46,7 +57,7 @@ if __name__=="__main__":
     from orbits_utils import ESAOrbits
     from gb_utils import GBWave, draw_parameters, get_response
     # 
-    T = 0.1
+    T = 0.5
     dt = 10.
     # GB parameters
     psi = 0.0 # np.random.uniform(0, 2 * np.pi)
@@ -59,8 +70,7 @@ if __name__=="__main__":
     param = np.asarray([A, f, fdot, iota, phi0, psi, lam, beta])
     
     from perturbation_utils import create_orbit_with_periodic_dev, create_orbit_with_static_dev
-    periodic_orb = create_orbit_with_periodic_dev(delta_x=0.0, fpath="new_orbits.h5", use_gpu=True)
-    static_orb = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=0.0, rotation_error=0.0, translation_error=0.0, dt=86400., T=1.0)
+    static_orb = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=0.0, rotation_error=0.0, translation_error=0.0, dt=86400., T=T*1.01)
     gb_response = get_response(static_orb, dt=dt, T=T, use_gpu=True)
     resp = gb_response(*param)
     AET = xp.asarray(resp)
@@ -95,7 +105,7 @@ if __name__=="__main__":
     import time
     # mismatch analysis
     start = time.time()
-    static_orb_deviation = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=86400., T=T)
+    static_orb_deviation = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=86400., T=T*1.01)
     gb_response_deviation = get_response(static_orb_deviation, dt=dt, T=T, use_gpu=True)
     end = time.time()
     print(f"Time taken for response with deviation: {end - start:.2f} seconds")

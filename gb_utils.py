@@ -143,14 +143,18 @@ if __name__ == "__main__":
     from orbits_utils import ESAOrbits
     # Example usage
     A, f, fdot, iota, phi0, psi, lam, beta = draw_parameters()
+    f = 1e-4
+    A = 1e-25
+    dt = 0.5
+    T = 0.1
     param = np.asarray([A, f, fdot, iota, phi0, psi, lam, beta])
-    gb = GBWave(use_gpu=True, T=1.0, dt=10.0)
+    gb = GBWave(use_gpu=True, T=T, dt=dt)
     h_strain = gb(A, f, fdot, iota, phi0, psi)
     fpath = "new_orbits.h5"
     orb_default = ESAOrbits(fpath, use_gpu=True)
     deviation = {which: np.zeros_like(getattr(orb_default, which + "_base")) for which in ["ltt", "x", "n", "v"]}
     orb_default.configure(linear_interp_setup=True, deviation=deviation)
-    gb_response = get_response(orb_default)
+    gb_response = get_response(orb_default, T=T, dt=dt, use_gpu=True)
     
     # check generate waveform is consistent with the h_strain
     h_response = gb_response.generate_waveform(*param[:-2])
@@ -161,4 +165,11 @@ if __name__ == "__main__":
     AET_test = xp.asarray(gb_response(*param))
     assert np.sum(AET - AET_test)==0.0
     print("My response applied and checked successfully.")
+    # plot fft of AET
+    fft = xp.fft.fft(AET, axis=1).get()
+    freq = xp.fft.fftfreq(AET.shape[1], d=dt).get()
+    plt.figure(figsize=(10, 6))
+    plt.loglog(freq, np.abs(fft[0]), label='A', color='blue')
+    plt.savefig('fft_A.png', dpi=300)
+    
     
