@@ -1,9 +1,10 @@
 import numpy as np
 from scipy.signal import sawtooth
-from orbits_utils import ESAOrbits
+from orbits_utils import ESAOrbits, EqualArmlengthOrbits
 from lisaorbits import StaticConstellation
 from lisatools.utils.constants import *
 from matplotlib import pyplot as plt
+from scipy.interpolate import CubicSpline
 try:
     import cupy as xp
     xp.cuda.Device(3).use()  # Ensure that the first GPU is used
@@ -160,28 +161,6 @@ def random_vectors_on_sphere(size):
 
     return np.column_stack((x, y, z))
 
-def get_periodic_variation(time_vec, period=14*86400, rho_std=50e3, ltt_std=1):
-    """
-    Generate a periodic variation in the local orbital frame
-    :param time_vec: time vector
-    :param period: period of the variation
-    :param rho_std: amplitude of the space craft absolute position
-    :param ltt_std: amplitude of the light travel time variation
-    :return: 2D array of shape (len(time_vec), 3)
-    """
-    size = len(time_vec)
-    t_dev = np.arange(time_vec[0], time_vec[-1], period)
-    dx_generated = CubicSpline(t_dev, random_vectors_on_sphere(len(t_dev)) * np.random.normal(0.0, rho_std, size=len(t_dev))[:,None])(time_vec)
-    # plt.figure()
-    # plt.plot(time_vec, dx_generated[:,0], label="x")
-    # plt.axhline(rho_std, color='r', linestyle='--', label="rho_std")
-    # plt.xlabel("Time [s]")
-    # plt.ylabel("Deviation in position [m]")
-    # plt.savefig('test.png')
-
-    ltt_generated = CubicSpline(t_dev, np.random.normal(0.0, 1/C_SI,size=len(t_dev)))(time_vec)
-    return dx_generated, ltt_generated
-
 def get_static_variation(arm_lengths, armlength_error, rotation_error, translation_error, rot_fac = 2.127):
     """ Apply perturbations to the static orbits 
     
@@ -232,7 +211,7 @@ def get_static_variation(arm_lengths, armlength_error, rotation_error, translati
     K = np.array([[0, -axis[2], axis[1]],
                 [axis[2], 0, -axis[0]],
                 [-axis[1], axis[0], 0]])
-    R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * np.outer(axis, axis)
+    R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * K @ K
 
     # Apply the rotation to the spacecraft positions
     rotated_positions = np.dot(R, perturbed_ltt_orbits.sc_positions.T).T
@@ -269,18 +248,14 @@ def create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_er
     Raises:
         Any exceptions raised by get_static_variation, porbit.write, or ESAOrbits initialization.
     """
-    porbit = get_static_variation(
-        arm_lengths=arm_lengths, 
-        armlength_error=armlength_error, 
-        rotation_error=rotation_error, 
-        translation_error=translation_error)
+    porbit = get_static_variation(arm_lengths=arm_lengths, armlength_error=armlength_error, rotation_error=rotation_error, translation_error=translation_error)
     porbit.write("temp_orbit.h5", dt=dt, size=int(T*YRSID_SI/dt), t0=0.0, mode="w")    
     orb = ESAOrbits("temp_orbit.h5",use_gpu=True)
     orb.configure(linear_interp_setup=True)
     return orb
 
 
-def create_orbit_with_periodic_dev(fpath, use_gpu, ltt_std=1, rho_std=50e3):
+def create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlength_error=1, rotation_error=50e3, translation_error=50e3, period=150*86400, **kwargs):
     """
     Create an orb_dev object with deviations based on the given sigma.
 
@@ -293,33 +268,44 @@ def create_orbit_with_periodic_dev(fpath, use_gpu, ltt_std=1, rho_std=50e3):
     ESAOrbits: The orb_dev object with configured deviations.
     """
     # create the deviation dictionary
-    orb_dev = ESAOrbits(fpath, use_gpu=use_gpu)
+    orb_dev = EqualArmlengthOrbits(use_gpu=use_gpu)# ESAOrbits(fpath, use_gpu=use_gpu)
     deviation = {which: np.zeros_like(getattr(orb_dev, which + "_base")) for which in ["ltt", "x", "n", "v"]}
-    
-    # time
     time_vec = orb_dev.t_base
-    xbase = orb_dev.x_base
-    local_orbital_frame_pos = np.sum(xbase, axis=1) / 3
+    porbit = get_static_variation(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=0, rotation_error=0, translation_error=0)
     
-    if rho_std != 0.0:
-        # loop over spacecraft
-        for sc in range(3):
-            # deviation in the local orbital frame
-            deviation_x, deviation_ltt = get_periodic_variation(time_vec, period=14 * 86400, rho_std=rho_std, ltt_std=ltt_std)
-            deviation["x"][:, sc, :] += deviation_x
-            deviation["v"][:, sc, :] += np.gradient(deviation_x, time_vec, axis=0)
-    if ltt_std != 0.0:
-        for links in range(6):
-            deviation_x, deviation_ltt = get_periodic_variation(time_vec, period=14 * 86400, rho_std=rho_std, ltt_std=ltt_std)
-            deviation["ltt"][:, links] = deviation_ltt
+    # creating time varying function
+    t_dev = np.arange(time_vec[0], time_vec[-1], period)
+    delta_x = []
+    delta_ltt = []
+    for el in range(len(t_dev)):
+        porbit_dev = get_static_variation(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=armlength_error, rotation_error=rotation_error, translation_error=translation_error)
+        # need only the first index because constant in time
+        delta_x_temp = porbit.compute_position(orb_dev.t_base)[0] - porbit_dev.compute_position(orb_dev.t_base)[0]
+        delta_x.append(delta_x_temp)
+        
+        ltt_temp = porbit.compute_ltt(orb_dev.t_base)[0] - porbit_dev.compute_ltt(orb_dev.t_base)[0]
+        delta_ltt.append(ltt_temp)
+
+    delta_x = np.asarray(delta_x)
+    delta_ltt = np.asarray(delta_ltt)
     
-    orb_dev.configure(linear_interp_setup=True, deviation=deviation)
+    # time varying
+    x_dev = CubicSpline(t_dev, delta_x.reshape((len(t_dev), -1)))
+    deviation["x"] += x_dev(time_vec).reshape((len(time_vec), 3, 3))
+    deviation["v"] += x_dev.derivative()(time_vec).reshape((len(time_vec), 3, 3))
+    deviation["ltt"] += CubicSpline(t_dev, delta_ltt, bc_type='natural')(time_vec)
+    
+    # static
+    # deviation["x"] += delta_x[0]
+    # deviation["v"] += 0.0
+    # deviation["ltt"] += delta_ltt[0]
+
+    orb_dev.configure(t_arr=orb_dev.t_base, linear_interp_setup=False, deviation=deviation)
     return orb_dev
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
     import time
-    from scipy.interpolate import CubicSpline
     static_orb = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=0.0, rotation_error=0.0, translation_error=0.0, dt=1000., T=1.0)
     start = time.time()
     static_orb_dev = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=1000., T=1.0)
@@ -327,20 +313,20 @@ if __name__ == "__main__":
     print("Time to create static orbit with deviations:", end - start)
     
     # first index is time and since it does not vary we just want multiple realizations
-    num_deviations = 1000
-    # delta_x = []
-    # delta_ltt = []
-    # for dev_i in range(num_deviations):
-    #     print(dev_i)
-    #     temp_dev = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=1000., T=1.0)
-    #     delta_x.append(temp_dev.x[0] - static_orb.x[0])
-    #     delta_ltt.append(temp_dev.ltt[0] - static_orb.ltt[0])
-    # delta_x = np.asarray(delta_x)
-    # delta_ltt = np.asarray(delta_ltt)
+    num_deviations = 20
+    delta_x = []
+    delta_ltt = []
+    for dev_i in range(num_deviations):
+        temp_dev = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=1000., T=1.0)
+        delta_x.append(temp_dev.x[0] - static_orb.x[0])
+        delta_ltt.append(temp_dev.ltt[0] - static_orb.ltt[0])
+    delta_x = np.asarray(delta_x)
+    delta_ltt = np.asarray(delta_ltt)
     # np.savez("delta_x[m]_ltt[s]", delta_x=delta_x, delta_ltt=delta_ltt)
-    data = np.load("delta_x[m]_ltt[s].npz")
-    delta_x = data["delta_x"]
-    delta_ltt = data["delta_ltt"]
+    # data = np.load("delta_x[m]_ltt[s].npz")
+    # delta_x = data["delta_x"]
+    # delta_ltt = data["delta_ltt"]
+    
     # check deviation of spacecraft position
     plt.figure()
     sc = 0
@@ -359,9 +345,9 @@ if __name__ == "__main__":
     plt.close('all')
     mean_ltt, std_ltt = np.mean(delta_ltt.flatten()), np.std(delta_ltt.flatten())
     
-    periodic_orb = create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, ltt_std=0.0, rho_std=0.0)
+    periodic_orb = create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlength_error=0.0, rotation_error=0.0, translation_error=0.0)
     start = time.time()
-    periodic_orb_dev = create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, ltt_std=1.0, rho_std=50e3)
+    periodic_orb_dev = create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlength_error=1, rotation_error=50e3, translation_error=50e3)
     end = time.time()
     print("Time to create periodic orbit with deviations:", end - start)
 
@@ -383,44 +369,37 @@ if __name__ == "__main__":
             ax[ii].set_ylabel(coord_color[ii][0])
 
         ax[2].set_xlabel("Time [days]")
+        plt.tight_layout()
         plt.savefig(name + "_" + "delta_x_y_z.png")
         ##############################################################
         # L12
         sc = 0
+        change = "ltt"  # can be "ltt", "x", "n", "v"
         coord_color = [("$L_{12}$ [s]", "g")]
         fig, ax = plt.subplots(3, 1, sharex=True)
         arr = getattr(orb_dev, change)
         arr_def = getattr(orb_default, change)
         ii = 0
-        deviation = np.linalg.norm(arr_def[:, ii]-arr_def[:, ii+1],axis=1)/C_SI
+        ax[ii].set_title("Light Travel Time")
         ax[ii].plot(np.arange(arr.shape[0]) * orb_default.dt / 86400, 
-                    deviation, 
-                    color=coord_color[sc][1], alpha=0.3, label="default")
+            arr[:, ii], color=coord_color[sc][1], alpha=0.3, label="default")
         
-        ref = np.linalg.norm(arr[:, ii]-arr[:, ii+1],axis=1)/C_SI
-        ax[ii].plot(np.arange(arr.shape[0]) * orb_default.dt / 86400, ref, linestyle='--', color='k',alpha=0.2, label="deviation")
+        ax[ii].plot(np.arange(arr.shape[0]) * orb_default.dt / 86400, 
+            arr_def[:, ii], linestyle='--', color='k',alpha=0.2, label="deviation")
         ax[ii].set_ylabel(coord_color[ii][0])
                 
-        arr = getattr(orb_dev, change)
-        arr_def = getattr(orb_default, change)
-        ii = 0
-        deviation = np.linalg.norm(arr_def[:, ii]-arr_def[:, ii+1],axis=1) # /C_SI
-        ref = np.linalg.norm(arr[:, ii]-arr[:, ii+1],axis=1) # /C_SI
-        diff = np.abs(ref-deviation)
-        ax[1].plot(np.arange(arr.shape[0]) * orb_default.dt / 86400, diff, linestyle='--', color='k',alpha=0.2)
-        ax[1].set_ylabel("Armlength difference [m]")
+        ax[1].plot(np.arange(arr.shape[0]) * orb_default.dt / 86400, 
+            arr[:, ii]-arr_def[:, ii], linestyle='--', color='k',alpha=0.2)
+        ax[1].set_ylabel("Difference [s]")
 
-        arr = getattr(orb_dev, change)
-        arr_def = getattr(orb_default, change)
-        ii = 0
-        deviation = np.linalg.norm(arr_def[:, ii]-arr_def[:, ii+1],axis=1)/C_SI
-        ref = np.linalg.norm(arr[:, ii]-arr[:, ii+1],axis=1)/C_SI
-        diff = np.abs(ref-deviation)/ref
-        ax[2].plot(np.arange(arr.shape[0]) * orb_default.dt / 86400, diff, linestyle='--', color='k',alpha=0.2)
-        ax[2].set_ylabel("Relative")
+        ax[2].plot(np.arange(arr.shape[0]) * orb_default.dt / 86400, 
+            1-arr[:, ii]/arr_def[:, ii], linestyle='--', color='k',alpha=0.2)
+        ax[2].set_ylabel("Relative Difference")
 
         ax[2].set_xlabel("Time [days]")
         ax[0].legend()
+
+        plt.tight_layout()
         plt.savefig(name + "_" + "delta_armlength.png")
         ##############################################################
         plt.figure()
@@ -433,4 +412,5 @@ if __name__ == "__main__":
         plt.xlabel("Time [days]")
         plt.legend()
         plt.ylabel("Deviation Radius [km]")
+        plt.tight_layout()
         plt.savefig(name + "_" + "delta_radius.png")
