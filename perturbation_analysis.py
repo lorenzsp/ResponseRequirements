@@ -53,7 +53,7 @@ if __name__=="__main__":
     lam, beta = lambs[ind], betas[ind]  # Ecliptic coordinates
     param = np.asarray([A, f, fdot, iota, phi0, psi, lam, beta])
     dt_resp = 86400.0/4  # seconds
-    default = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=0.0, rotation_error=0.0, translation_error=0.0, dt=dt_resp, T=T*1.01)
+    default = create_orbit_with_periodic_dev(armlength_error=0.0, rotation_error=0.0, translation_error=0.0, dt=dt_resp, T=T*1.01)
     gb_def = get_response(default, dt=dt, T=T, use_gpu=True)
     h_strain = gb_def.generate_waveform(*param[:-2])
     AET = xp.asarray(gb_def(*param))
@@ -68,59 +68,59 @@ if __name__=="__main__":
     translation_error = 50e3
 
     # #################################################
-    # # across frequencies
-    # print("Starting mismatch analysis across frequencies...")
-    # frequency_vector = np.logspace(-4, 0.0, 200)
-    # mismatch_results = np.zeros((n_realizations, len(frequency_vector), 3))
-    # for f_i, freq in tqdm(enumerate(frequency_vector)):
-    #     print(f"Frequency: {freq} Hz")
-    #     param[1] = freq
-    #     h_strain = gb_def.generate_waveform(*param[:-2])
-    #     AET = xp.asarray(gb_def.apply_response(h_strain, param[6], param[7]))
-    #     # AET = xp.asarray(gb_def(*param))
-    #     for real_i in range(n_realizations):
-    #         static_orb_deviation = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=armlength_error, rotation_error=rotation_error, translation_error=translation_error, dt=dt_resp, T=T*1.01)
-    #         gb_response_deviation = get_response(static_orb_deviation, dt=dt, T=T, use_gpu=True)
+    # across frequencies
+    print("Starting mismatch analysis across frequencies...")
+    frequency_vector = np.logspace(-4, 0.0, 200)
+    mismatch_results = np.zeros((n_realizations, len(frequency_vector), 3))
+    for f_i, freq in tqdm(enumerate(frequency_vector)):
+        print(f"Frequency: {freq} Hz")
+        param[1] = freq
+        h_strain = gb_def.generate_waveform(*param[:-2])
+        AET = xp.asarray(gb_def.apply_response(h_strain, param[6], param[7]))
+        # AET = xp.asarray(gb_def(*param))
+        for real_i in range(n_realizations):
+            static_orb_deviation = create_orbit_with_periodic_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=armlength_error, rotation_error=rotation_error, translation_error=translation_error, dt=dt_resp, T=T*1.01)
+            gb_response_deviation = get_response(static_orb_deviation, dt=dt, T=T, use_gpu=True)
         
-    #         mismatch = compute_mismatch(gb_response_deviation, h_strain, param, AET, dt)
-    #         mismatch_results[real_i, f_i] = np.abs(mismatch.get())
-    #         # print(f"Realization {real_i + 1}/{n_realizations}, Mismatch: {mismatch_results[real_i, f_i]}")
+            mismatch = compute_mismatch(gb_response_deviation, h_strain, param, AET, dt)
+            mismatch_results[real_i, f_i] = np.abs(mismatch.get())
+            # print(f"Realization {real_i + 1}/{n_realizations}, Mismatch: {mismatch_results[real_i, f_i]}")
     
-    # plt.figure(figsize=(10, 6))
-    # plt.loglog(frequency_vector, mismatch_results[:,:,0].mean(axis=(0)), label='Mean Mismatch', color='blue')
-    # plt.xscale('log')
-    # plt.xlabel('Frequency (Hz)')
-    # plt.ylabel('Mismatch')
-    # plt.title('Mismatch Analysis with Deviations')
-    # plt.legend()
-    # plt.savefig('mismatch_vs_frequency.png', dpi=300)
-    # # #################################################
-    # # across the sky
-    # print("Starting mismatch analysis across the sky...")
-    # param[1] = 1e-3  # Reset frequency for sky analysis
-    # nside = 6
-    # betas, lambs, gw_response_map = get_sky_grid(nside)
-    # mismatch_results = np.zeros((n_realizations, len(betas), 3))
-    # h_strain = gb_def.generate_waveform(*param[:-2], hp_flag=1.0, hc_flag=0.0)
-    # for real_i in range(n_realizations):
-    #     static_orb_deviation = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=armlength_error, rotation_error=rotation_error, translation_error=translation_error, dt=dt_resp, T=T*1.01)
-    #     gb_response_deviation = get_response(static_orb_deviation, dt=dt, T=T, use_gpu=True)
-    #     for s_i in tqdm(range(len(betas)), desc="Processing sky"):
-    #         lam, beta = lambs[s_i], betas[s_i]
-    #         param[6], param[7] = lam, beta
-    #         print(f"Sky Position: (λ: {lam}, β: {beta})")
-    #         AET = xp.asarray(gb_def.apply_response(h_strain, param[6], param[7]))
-    #         # AET = xp.asarray(gb_def(*param, hp_flag=1.0, hc_flag=0.0))
-    #         mismatch = compute_mismatch(gb_response_deviation, h_strain, param, AET, dt)
-    #         mismatch_results[real_i, s_i] = np.abs(mismatch.get())
-    #         # print(f"Realization {real_i + 1}/{n_realizations}, Mismatch: {mismatch_results[real_i, f_i]}")
-    # gw_response_map = mismatch_results[:,:,0].mean(axis=(0))
-    
-    # plt.figure(figsize=(10, 6))
-    # hp.mollview(gw_response_map, title="GW Response Map", unit="Mismatch", cmap="viridis", norm="log")
-    # hp.graticule()
-    # plt.savefig("mismatch_vs_sky_map.png", dpi=300)
+    plt.figure(figsize=(10, 6))
+    plt.loglog(frequency_vector, mismatch_results[:,:,0].mean(axis=(0)), label='Mean Mismatch', color='blue')
+    plt.xscale('log')
+    plt.xlabel('Frequency (Hz)')
+    plt.ylabel('Mismatch')
+    plt.title('Mismatch Analysis with Deviations')
+    plt.legend()
+    plt.savefig('mismatch_vs_frequency.png', dpi=300)
     # #################################################
+    # across the sky
+    print("Starting mismatch analysis across the sky...")
+    param[1] = 1e-3  # Reset frequency for sky analysis
+    nside = 6
+    betas, lambs, gw_response_map = get_sky_grid(nside)
+    mismatch_results = np.zeros((n_realizations, len(betas), 3))
+    h_strain = gb_def.generate_waveform(*param[:-2], hp_flag=1.0, hc_flag=0.0)
+    for real_i in range(n_realizations):
+        static_orb_deviation = create_orbit_with_periodic_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=armlength_error, rotation_error=rotation_error, translation_error=translation_error, dt=dt_resp, T=T*1.01)
+        gb_response_deviation = get_response(static_orb_deviation, dt=dt, T=T, use_gpu=True)
+        for s_i in tqdm(range(len(betas)), desc="Processing sky"):
+            lam, beta = lambs[s_i], betas[s_i]
+            param[6], param[7] = lam, beta
+            print(f"Sky Position: (λ: {lam}, β: {beta})")
+            AET = xp.asarray(gb_def.apply_response(h_strain, param[6], param[7]))
+            # AET = xp.asarray(gb_def(*param, hp_flag=1.0, hc_flag=0.0))
+            mismatch = compute_mismatch(gb_response_deviation, h_strain, param, AET, dt)
+            mismatch_results[real_i, s_i] = np.abs(mismatch.get())
+            # print(f"Realization {real_i + 1}/{n_realizations}, Mismatch: {mismatch_results[real_i, f_i]}")
+    gw_response_map = mismatch_results[:,:,0].mean(axis=(0))
+    
+    plt.figure(figsize=(10, 6))
+    hp.mollview(gw_response_map, title="GW Response Map", unit="Mismatch", cmap="viridis", norm="log")
+    hp.graticule()
+    plt.savefig("mismatch_vs_sky_map.png", dpi=300)
+    #################################################
     # as a function of different errors
     armlength_error = 1.0
     rotation_error = 50e3
@@ -143,7 +143,7 @@ if __name__=="__main__":
         for err_i, error in tqdm(enumerate(error_vec), desc="Processing errors"):
             ind = ind_ref * error
             for real_i in range(n_realizations):
-                static_orb_deviation = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=armlength_error * ind[0], rotation_error=rotation_error * ind[1], translation_error=translation_error * ind[2], dt=dt_resp, T=T*1.01)
+                static_orb_deviation = create_orbit_with_periodic_dev(armlength_error=armlength_error * ind[0], rotation_error=rotation_error * ind[1], translation_error=translation_error * ind[2], dt=dt_resp, T=T*1.01)
                 gb_response_deviation = get_response(static_orb_deviation, dt=dt, T=T, use_gpu=True)
             
                 mismatch = compute_mismatch(gb_response_deviation, h_strain, param, AET, dt)

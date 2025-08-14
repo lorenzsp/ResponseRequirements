@@ -255,20 +255,36 @@ def create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_er
     return orb
 
 
-def create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlength_error=1, rotation_error=50e3, translation_error=50e3, period=150*86400, **kwargs):
-    """
-    Create an orb_dev object with deviations based on the given sigma.
-
-    Parameters:
-    delta_x (float): Size of the deviation.
-    fpath (str): File path for the orbit data.
-    use_gpu (bool): Whether to use GPU for computations.
-
-    Returns:
-    ESAOrbits: The orb_dev object with configured deviations.
-    """
+def create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlength_error=1, rotation_error=50e3, translation_error=50e3, period=150*86400, equal_armlength=True, **kwargs):
+    def create_orbit_with_periodic_dev(
+        fpath="new_orbits.h5",
+        use_gpu=True,
+        armlength_error=1,
+        rotation_error=50e3,
+        translation_error=50e3,
+        period=150*86400,
+        equal_armlength=True,
+        **kwargs
+    ):
+        """
+        Creates an orbit object with periodic deviations in armlength, rotation, and translation errors.
+        This function generates an orbit (either with equal armlengths or using ESA orbit data) and applies time-varying deviations
+        to its position, velocity, and light travel time (ltt) based on the specified error parameters. The deviations are modeled
+        as periodic functions with a given period, using cubic spline interpolation.
+            fpath (str): File path for the orbit data (used if equal_armlength is False).
+            armlength_error (float): Magnitude of armlength error to apply (meters).
+            rotation_error (float): Magnitude of rotation error to apply (radians or meters, depending on implementation).
+            translation_error (float): Magnitude of translation error to apply (meters).
+            period (float): Period of the periodic deviation (seconds).
+            equal_armlength (bool): If True, use EqualArmlengthOrbits; otherwise, use ESAOrbits.
+            **kwargs: Additional keyword arguments passed to the orbit constructors.
+            ESAOrbits or EqualArmlengthOrbits: Configured orbit object with periodic deviations applied.
+        """
     # create the deviation dictionary
-    orb_dev = EqualArmlengthOrbits(use_gpu=use_gpu)# ESAOrbits(fpath, use_gpu=use_gpu)
+    if equal_armlength:
+        orb_dev = EqualArmlengthOrbits(use_gpu=use_gpu)
+    else:
+        orb_dev = ESAOrbits(fpath, use_gpu=use_gpu)
     deviation = {which: np.zeros_like(getattr(orb_dev, which + "_base")) for which in ["ltt", "x", "n", "v"]}
     time_vec = orb_dev.t_base
     porbit = get_static_variation(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=0, rotation_error=0, translation_error=0)
