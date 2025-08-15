@@ -5,6 +5,11 @@ from lisaorbits import StaticConstellation
 from lisatools.utils.constants import *
 from matplotlib import pyplot as plt
 from scipy.interpolate import CubicSpline
+
+plt.rcParams["text.usetex"] = True
+plt.rcParams["font.family"] = "serif"
+plt.rcParams["font.serif"] = ["Computer Modern"]
+
 try:
     import cupy as xp
     xp.cuda.Device(3).use()  # Ensure that the first GPU is used
@@ -255,31 +260,21 @@ def create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_er
     return orb
 
 
-def create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlength_error=1, rotation_error=50e3, translation_error=50e3, period=150*86400, equal_armlength=True, **kwargs):
-    def create_orbit_with_periodic_dev(
-        fpath="new_orbits.h5",
-        use_gpu=True,
-        armlength_error=1,
-        rotation_error=50e3,
-        translation_error=50e3,
-        period=150*86400,
-        equal_armlength=True,
-        **kwargs
-    ):
-        """
-        Creates an orbit object with periodic deviations in armlength, rotation, and translation errors.
-        This function generates an orbit (either with equal armlengths or using ESA orbit data) and applies time-varying deviations
-        to its position, velocity, and light travel time (ltt) based on the specified error parameters. The deviations are modeled
-        as periodic functions with a given period, using cubic spline interpolation.
-            fpath (str): File path for the orbit data (used if equal_armlength is False).
-            armlength_error (float): Magnitude of armlength error to apply (meters).
-            rotation_error (float): Magnitude of rotation error to apply (radians or meters, depending on implementation).
-            translation_error (float): Magnitude of translation error to apply (meters).
-            period (float): Period of the periodic deviation (seconds).
-            equal_armlength (bool): If True, use EqualArmlengthOrbits; otherwise, use ESAOrbits.
-            **kwargs: Additional keyword arguments passed to the orbit constructors.
-            ESAOrbits or EqualArmlengthOrbits: Configured orbit object with periodic deviations applied.
-        """
+def create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlength_error=1, rotation_error=50e3, translation_error=50e3, period=15*86400, equal_armlength=False, **kwargs):
+    """
+    Creates an orbit object with periodic deviations in armlength, rotation, and translation errors.
+    This function generates an orbit (either with equal armlengths or using ESA orbit data) and applies time-varying deviations
+    to its position, velocity, and light travel time (ltt) based on the specified error parameters. The deviations are modeled
+    as periodic functions with a given period, using cubic spline interpolation.
+        fpath (str): File path for the orbit data (used if equal_armlength is False).
+        armlength_error (float): Magnitude of armlength error to apply (meters).
+        rotation_error (float): Magnitude of rotation error to apply (radians or meters, depending on implementation).
+        translation_error (float): Magnitude of translation error to apply (meters).
+        period (float): Period of the periodic deviation (seconds).
+        equal_armlength (bool): If True, use EqualArmlengthOrbits; otherwise, use ESAOrbits.
+        **kwargs: Additional keyword arguments passed to the orbit constructors.
+        ESAOrbits or EqualArmlengthOrbits: Configured orbit object with periodic deviations applied.
+    """
     # create the deviation dictionary
     if equal_armlength:
         orb_dev = EqualArmlengthOrbits(use_gpu=use_gpu)
@@ -304,14 +299,38 @@ def create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlengt
 
     delta_x = np.asarray(delta_x)
     delta_ltt = np.asarray(delta_ltt)
-    
+
+    # # Plot distribution of delta_x (norm per spacecraft, in km)
+    # plt.figure()
+    # for sc in range(3):
+    #     plt.hist(np.linalg.norm(delta_x[:, sc], axis=-1) / 1e3, bins=30, alpha=0.5, label=f"SC{sc}")
+    # plt.xlabel("Deviation of SC position [km]")
+    # plt.ylabel("Count")
+    # plt.legend()
+    # plt.title("Distribution of SC Position Deviations")
+    # plt.tight_layout()
+    # plt.savefig("delta_x_distribution.png")
+    # plt.close()
+
+    # # Plot distribution of delta_ltt (in meters)
+    # plt.figure()
+    # plt.hist(delta_ltt.flatten() * C_SI, bins=30, alpha=0.7, color='g')
+    # plt.xlabel("Deviation in LTT [m]")
+    # plt.ylabel("Count")
+    # plt.title("Distribution of Light Travel Time Deviations")
+    # plt.tight_layout()
+    # plt.savefig("delta_ltt_distribution.png")
+
     # time varying
+    # set the last point to the same as the beginning to ensure periodicity
+    delta_x[-1] = delta_x[0]
+    delta_ltt[-1] = delta_ltt[0]
     x_dev = CubicSpline(t_dev, delta_x.reshape((len(t_dev), -1)))
     deviation["x"] += x_dev(time_vec).reshape((len(time_vec), 3, 3))
     deviation["v"] += x_dev.derivative()(time_vec).reshape((len(time_vec), 3, 3))
     deviation["ltt"] += CubicSpline(t_dev, delta_ltt, bc_type='natural')(time_vec)
     
-    # static
+    # # static
     # deviation["x"] += delta_x[0]
     # deviation["v"] += 0.0
     # deviation["ltt"] += delta_ltt[0]
@@ -328,44 +347,60 @@ if __name__ == "__main__":
     end = time.time()
     print("Time to create static orbit with deviations:", end - start)
     
-    # first index is time and since it does not vary we just want multiple realizations
-    num_deviations = 20
-    delta_x = []
-    delta_ltt = []
-    for dev_i in range(num_deviations):
-        temp_dev = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=1000., T=1.0)
-        delta_x.append(temp_dev.x[0] - static_orb.x[0])
-        delta_ltt.append(temp_dev.ltt[0] - static_orb.ltt[0])
-    delta_x = np.asarray(delta_x)
-    delta_ltt = np.asarray(delta_ltt)
-    # np.savez("delta_x[m]_ltt[s]", delta_x=delta_x, delta_ltt=delta_ltt)
-    # data = np.load("delta_x[m]_ltt[s].npz")
-    # delta_x = data["delta_x"]
-    # delta_ltt = data["delta_ltt"]
-    
-    # check deviation of spacecraft position
-    plt.figure()
-    sc = 0
-    [plt.hist(np.linalg.norm(delta_x[:, sc],axis=-1)/1e3, bins=30, alpha=.3, label=f"SC{sc}") for sc in range(3)]
-    plt.xlabel("Deviation of SC position [km]")
-    plt.legend()
-    plt.savefig("DeltX_deviation_x.png")
-    plt.close('all')
-    mean_dx, std_dx = np.mean(np.linalg.norm(delta_x[:, sc],axis=-1)), np.std(np.linalg.norm(delta_x[:, sc],axis=-1))
-    
-    # check deviation of LTT
-    plt.figure()
-    plt.hist(delta_ltt.flatten()*C_SI, bins=30,density=True)
-    plt.xlabel("Deviation in LTT [m]")
-    plt.savefig("LTT_typical_deviation.png")
-    plt.close('all')
-    mean_ltt, std_ltt = np.mean(delta_ltt.flatten()), np.std(delta_ltt.flatten())
-    
     periodic_orb = create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlength_error=0.0, rotation_error=0.0, translation_error=0.0)
     start = time.time()
     periodic_orb_dev = create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlength_error=1, rotation_error=50e3, translation_error=50e3)
     end = time.time()
     print("Time to create periodic orbit with deviations:", end - start)
+    
+    # first index is time and since it does not vary we just want multiple realizations
+    num_deviations = 50
+    delta_x_periodic = []
+    delta_ltt_periodic = []
+    delta_x_static = []
+    delta_ltt_static = []
+
+    # Periodic deviations
+    for dev_i in range(num_deviations):
+        temp_dev = create_orbit_with_periodic_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=1000., T=1.0)
+        ind = np.random.randint(0, len(temp_dev.x)-1)
+        delta_x_periodic.append(temp_dev.x[ind] - periodic_orb.x[ind])
+        delta_ltt_periodic.append(temp_dev.ltt[ind] - periodic_orb.ltt[ind])
+    delta_x_periodic = np.asarray(delta_x_periodic)
+    delta_ltt_periodic = np.asarray(delta_ltt_periodic)
+
+    # Static deviations
+    for dev_i in range(num_deviations):
+        temp_dev = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=1000., T=1.0)
+        ind = np.random.randint(0, len(temp_dev.x)-1)
+        delta_x_static.append(temp_dev.x[ind] - static_orb.x[ind])
+        delta_ltt_static.append(temp_dev.ltt[ind] - static_orb.ltt[ind])
+    delta_x_static = np.asarray(delta_x_static)
+    delta_ltt_static = np.asarray(delta_ltt_static)
+
+    # check deviation of spacecraft position
+    plt.figure()
+    sc = 0
+    plt.hist(np.linalg.norm(delta_x_periodic[:, sc], axis=-1)/1e3, bins=30, alpha=.3, label=f"SC{sc} periodic")
+    plt.hist(np.linalg.norm(delta_x_static[:, sc], axis=-1)/1e3, bins=30, alpha=.3, label=f"SC{sc} static")
+    plt.xlabel("Deviation of SC position [km]")
+    plt.ylabel("Count")
+    plt.legend()
+    plt.savefig("DeltX_deviation_x_compare.png")
+    plt.close('all')
+    mean_dx_periodic, std_dx_periodic = np.mean(np.linalg.norm(delta_x_periodic[:, sc], axis=-1)), np.std(np.linalg.norm(delta_x_periodic[:, sc], axis=-1))
+    mean_dx_static, std_dx_static = np.mean(np.linalg.norm(delta_x_static[:, sc], axis=-1)), np.std(np.linalg.norm(delta_x_static[:, sc], axis=-1))
+
+    # check deviation of LTT
+    plt.figure()
+    plt.hist(delta_ltt_periodic.flatten()*C_SI, bins=30, density=True, alpha=0.5, label="Periodic")
+    plt.hist(delta_ltt_static.flatten()*C_SI, bins=30, density=True, alpha=0.5, label="Static")
+    plt.xlabel("Deviation in LTT [m]")
+    plt.ylabel("Count")
+    plt.legend()
+    plt.savefig("LTT_typical_deviation_compare.png")
+    plt.close('all')
+    # mean_ltt, std_ltt = np.mean(delta_ltt.flatten()), np.std(delta_ltt.flatten())
 
     for orb_dev, orb_default, name in [(periodic_orb_dev, periodic_orb, "evolving"), (static_orb_dev, static_orb, "static")]:
         plot_orbit_3d(orb_dev, T=1.0, output_file=f"{name}_orbit_3d.png")
