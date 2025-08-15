@@ -12,7 +12,6 @@ plt.rcParams["font.serif"] = ["Computer Modern"]
 
 try:
     import cupy as xp
-    xp.cuda.Device(3).use()  # Ensure that the first GPU is used
 except ImportError:
     import numpy as xp
 
