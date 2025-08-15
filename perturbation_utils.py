@@ -260,7 +260,7 @@ def create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_er
     return orb
 
 
-def create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlength_error=1, rotation_error=50e3, translation_error=50e3, period=15*86400, equal_armlength=False, **kwargs):
+def create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlength_error=1, rotation_error=50e3, translation_error=50e3, period=15*86400, equal_armlength=True, **kwargs):
     """
     Creates an orbit object with periodic deviations in armlength, rotation, and translation errors.
     This function generates an orbit (either with equal armlengths or using ESA orbit data) and applies time-varying deviations
