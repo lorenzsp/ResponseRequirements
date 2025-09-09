@@ -76,7 +76,7 @@ class BHWave:
         
         self.t = self.xp.arange(0.0, T * YRSID_SI, dt)
         if window:
-            self.window = self.xp.asarray(tukey(len(self.t), alpha=0.05))
+            self.window = self.xp.asarray(tukey(len(self.t), alpha=0.01))
         else:
             self.window = 1.0
 
@@ -126,7 +126,14 @@ class BHWave:
         omega[omega<0.0] = 0.0
         # x(t)
         x = (m_sec * omega) ** (2.0 / 3.0)
-        
+        # close to zero 1-self.xp.gradient(Phi,self.t) / (2 * omega)
+        # frequency evolution
+        f_ev = omega / self.xp.pi
+        # get minimum and maximum frequency
+        mask_diff_zero = omega > 0.0
+        self.fmin = f_ev[mask_diff_zero].min()
+        self.fmax = f_ev[mask_diff_zero].max()
+
         # Amplitudes
         cosi = xp.cos(iota)
         A_t = 2.0 * (eta * m_sec / dl_sec) * x
