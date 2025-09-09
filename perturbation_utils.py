@@ -285,6 +285,7 @@ def create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlengt
     
     # creating time varying function
     t_dev = np.arange(time_vec[0], time_vec[-1], period)
+    
     delta_x = []
     delta_ltt = []
     for el in range(len(t_dev)):
@@ -320,19 +321,20 @@ def create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlengt
     # plt.tight_layout()
     # plt.savefig("delta_ltt_distribution.png")
 
-    # time varying
-    # set the last point to the same as the beginning to ensure periodicity
-    delta_x[-1] = delta_x[0]
-    delta_ltt[-1] = delta_ltt[0]
-    x_dev = CubicSpline(t_dev, delta_x.reshape((len(t_dev), -1)))
-    deviation["x"] += x_dev(time_vec).reshape((len(time_vec), 3, 3))
-    deviation["v"] += x_dev.derivative()(time_vec).reshape((len(time_vec), 3, 3))
-    deviation["ltt"] += CubicSpline(t_dev, delta_ltt, bc_type='natural')(time_vec)
-    
-    # # static
-    # deviation["x"] += delta_x[0]
-    # deviation["v"] += 0.0
-    # deviation["ltt"] += delta_ltt[0]
+    if len(t_dev) != 1:
+        # time varying
+        # set the last point to the same as the beginning to ensure periodicity
+        delta_x[-1] = delta_x[0]
+        delta_ltt[-1] = delta_ltt[0]
+        x_dev = CubicSpline(t_dev, delta_x.reshape((len(t_dev), -1)))
+        deviation["x"] += x_dev(time_vec).reshape((len(time_vec), 3, 3))
+        deviation["v"] += x_dev.derivative()(time_vec).reshape((len(time_vec), 3, 3))
+        deviation["ltt"] += CubicSpline(t_dev, delta_ltt, bc_type='natural')(time_vec)
+    else:
+        # static
+        deviation["x"] += delta_x[0]
+        deviation["v"] += 0.0
+        deviation["ltt"] += delta_ltt[0]
 
     orb_dev.configure(t_arr=orb_dev.t_base, linear_interp_setup=False, deviation=deviation)
     return orb_dev

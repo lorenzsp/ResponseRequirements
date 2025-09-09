@@ -62,7 +62,7 @@ def create_plot_error(AET, AET_deviation, time, filename='response_deviation.png
     fig, axs = plt.subplots(1, 2, figsize=(14, 6))
 
     # Time domain plot
-    axs[0].semilogy(time/86400, np.abs(AET[0].get()-AET_deviation[0].get()), label='AET', color='blue')
+    axs[0].plot(time/86400, np.abs(AET[0].get()-AET_deviation[0].get()), label='AET', color='blue')
     # axs[0].plot(time, AET_deviation[0].get(), label='AET with Deviation', color='orange', alpha=0.7)
     axs[0].set_xlabel('Time (days)')
     axs[0].set_ylabel('Absolute Difference A')
@@ -97,8 +97,8 @@ def create_plot_error(AET, AET_deviation, time, filename='response_deviation.png
 
 if __name__=="__main__":
     
-    T = 30/365
-    dt = 1.0
+    T = 365/365
+    dt = 10.0
     # GB parameters
     psi = 0.0 # np.random.uniform(0, 2 * np.pi)
     iota = 0.0 # np.arccos(np.random.uniform(-1, 1))
@@ -107,7 +107,7 @@ if __name__=="__main__":
     f = 1e-3
     fdot = 0.0
     # default_orbit = create_orbit_with_static_dev
-    default_orbit = lambda **kwargs: create_orbit_with_periodic_dev(equal_armlength=False, **kwargs)#, period=365*86400.0)
+    default_orbit = lambda **kwargs: create_orbit_with_periodic_dev(equal_armlength=False, **kwargs, period=2*365*86400.0)
     nside = 4
     betas, lambs, gw_response_map = get_sky_grid(nside)
     ind = 10
