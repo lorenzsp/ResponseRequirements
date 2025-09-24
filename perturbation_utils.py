@@ -139,9 +139,9 @@ def plot_orbit_3d(orbit, T, Nshow=10, lam=None, beta=None, output_file="3d_orbit
     ax.set_ylim([-max_r, max_r])
     ax.set_zlim([-max_r, max_r])
     # plt.show()
-    # plt.tight_layout()
+    plt.tight_layout()
     # plt.subplots_adjust(left=-0.4, right=1.4, top=1.4, bottom=-0.4)
-    plt.savefig(output_file,dpi=300)
+    plt.savefig("figures_perturbation/"+output_file,dpi=300)
     print(f"3D orbit plot saved to {output_file}")
 
 
@@ -209,7 +209,10 @@ def get_static_variation(arm_lengths, armlength_error, rotation_error, translati
     # phi = d / r
     # TODO: improve on the math here; not all rotations affect all S/C, so this is
     # off by a factor of 2 or so; for now just fitted by hand
-    angle = rot_fac * rotation_error / avg_distance
+    # angle = rot_fac * rotation_error / avg_distance
+    angle_std = rot_fac * rotation_error / avg_distance
+
+    angle = np.random.normal(0, angle_std)
 
     # Rotation matrix using Rodrigues' rotation formula
     K = np.array([[0, -axis[2], axis[1]],
@@ -309,7 +312,7 @@ def create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlengt
     # plt.legend()
     # plt.title("Distribution of SC Position Deviations")
     # plt.tight_layout()
-    # plt.savefig("delta_x_distribution.png")
+    # plt.savefig("figures_perturbation/"+"delta_x_distribution.png", dpi=300)
     # plt.close()
 
     # # Plot distribution of delta_ltt (in meters)
@@ -319,7 +322,7 @@ def create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=True, armlengt
     # plt.ylabel("Count")
     # plt.title("Distribution of Light Travel Time Deviations")
     # plt.tight_layout()
-    # plt.savefig("delta_ltt_distribution.png")
+    # plt.savefig("figures_perturbation/"+"delta_ltt_distribution.png", dpi=300)
 
     if len(t_dev) != 1:
         # time varying
@@ -363,7 +366,11 @@ if __name__ == "__main__":
 
     # Periodic deviations
     for dev_i in range(num_deviations):
-        temp_dev = create_orbit_with_periodic_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=1000., T=1.0)
+        temp_dev = create_orbit_with_periodic_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], 
+                                                  armlength_error=1, 
+                                                  rotation_error=50e3, 
+                                                  translation_error=50e3, 
+                                                  dt=1000., T=1.0)
         ind = np.random.randint(0, len(temp_dev.x)-1)
         delta_x_periodic.append(temp_dev.x[ind] - periodic_orb.x[ind])
         delta_ltt_periodic.append(temp_dev.ltt[ind] - periodic_orb.ltt[ind])
@@ -372,7 +379,11 @@ if __name__ == "__main__":
 
     # Static deviations
     for dev_i in range(num_deviations):
-        temp_dev = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=1000., T=1.0)
+        temp_dev = create_orbit_with_static_dev(arm_lengths=[2.5e9, 2.5e9, 2.5e9], 
+                                                armlength_error=1, 
+                                                rotation_error=50e3, 
+                                                translation_error=50e3, 
+                                                dt=1000., T=1.0)
         ind = np.random.randint(0, len(temp_dev.x)-1)
         delta_x_static.append(temp_dev.x[ind] - static_orb.x[ind])
         delta_ltt_static.append(temp_dev.ltt[ind] - static_orb.ltt[ind])
@@ -387,7 +398,7 @@ if __name__ == "__main__":
     plt.xlabel("Deviation of SC position [km]")
     plt.ylabel("Count")
     plt.legend()
-    plt.savefig("DeltX_deviation_x_compare.png")
+    plt.savefig("figures_perturbation/"+"DeltX_deviation_x_compare.png", dpi=300)
     plt.close('all')
     mean_dx_periodic, std_dx_periodic = np.mean(np.linalg.norm(delta_x_periodic[:, sc], axis=-1)), np.std(np.linalg.norm(delta_x_periodic[:, sc], axis=-1))
     mean_dx_static, std_dx_static = np.mean(np.linalg.norm(delta_x_static[:, sc], axis=-1)), np.std(np.linalg.norm(delta_x_static[:, sc], axis=-1))
@@ -398,8 +409,11 @@ if __name__ == "__main__":
     plt.hist(delta_ltt_static.flatten()*C_SI, bins=30, density=True, alpha=0.5, label="Static")
     plt.xlabel("Deviation in LTT [m]")
     plt.ylabel("Count")
+    plt.axvline(1e-9*C_SI, linestyle='--', color='k')
+    # link https://www.politesi.polimi.it/retrieve/f5abe8da-2e5e-4a94-9fac-358e776eb1bb/2025_04_Marchese_Executive_Summary.pdf
+    plt.axvline(-1e-9*C_SI, linestyle='--', color='k', label="3-sigma Marchese Executive Summary Fig 11")
     plt.legend()
-    plt.savefig("LTT_typical_deviation_compare.png")
+    plt.savefig("figures_perturbation/"+"LTT_typical_deviation_compare.png", dpi=300)
     plt.close('all')
     # mean_ltt, std_ltt = np.mean(delta_ltt.flatten()), np.std(delta_ltt.flatten())
 
@@ -416,13 +430,13 @@ if __name__ == "__main__":
             for sc in range(3):
                 ax[ii].plot(np.arange(arr.shape[0]) * orb_default.dt / 86400, 
                             (arr_def[:, sc, ii]-arr[:, sc, ii])/1e3, 
-                            label=f"SC{sc}",color=coord_color[sc][1], alpha=0.3)
+                            label=f"SC{sc}",color=coord_color[sc][1], alpha=0.5)
             ax[ii].axhline(0.0, linestyle='--', color='k')
             ax[ii].set_ylabel(coord_color[ii][0])
 
         ax[2].set_xlabel("Time [days]")
         plt.tight_layout()
-        plt.savefig(name + "_" + "delta_x_y_z.png")
+        plt.savefig("figures_perturbation/"+name + "_" + "delta_x_y_z.png", dpi=300)
         ##############################################################
         # L12
         sc = 0
@@ -434,35 +448,35 @@ if __name__ == "__main__":
         ii = 0
         ax[ii].set_title("Light Travel Time")
         ax[ii].plot(np.arange(arr.shape[0]) * orb_default.dt / 86400, 
-            arr[:, ii], color=coord_color[sc][1], alpha=0.3, label="default")
+            arr[:, ii], color=coord_color[sc][1], alpha=0.9, label="default")
         
         ax[ii].plot(np.arange(arr.shape[0]) * orb_default.dt / 86400, 
-            arr_def[:, ii], linestyle='--', color='k',alpha=0.2, label="deviation")
+            arr_def[:, ii], linestyle='--', color='k',alpha=0.9, label="deviation")
         ax[ii].set_ylabel(coord_color[ii][0])
                 
-        ax[1].plot(np.arange(arr.shape[0]) * orb_default.dt / 86400, 
-            arr[:, ii]-arr_def[:, ii], linestyle='--', color='k',alpha=0.2)
+        ax[1].semilogy(np.arange(arr.shape[0]) * orb_default.dt / 86400, 
+            np.abs(arr[:, ii]-arr_def[:, ii]), linestyle='--', color='k',alpha=0.9)
         ax[1].set_ylabel("Difference [s]")
 
-        ax[2].plot(np.arange(arr.shape[0]) * orb_default.dt / 86400, 
-            1-arr[:, ii]/arr_def[:, ii], linestyle='--', color='k',alpha=0.2)
+        ax[2].semilogy(np.arange(arr.shape[0]) * orb_default.dt / 86400, 
+            np.abs(1-arr[:, ii]/arr_def[:, ii]), linestyle='--', color='k',alpha=0.9)
         ax[2].set_ylabel("Relative Difference")
 
         ax[2].set_xlabel("Time [days]")
         ax[0].legend()
-
+        ax[0].set_xlim(0, 300)
         plt.tight_layout()
-        plt.savefig(name + "_" + "delta_armlength.png")
+        plt.savefig("figures_perturbation/"+name + "_" + "delta_armlength.png", dpi=300)
         ##############################################################
         plt.figure()
         sc = 0
         for sc in range(3):
             time_vec = orb_dev.t
             deviation_lof = orb_dev.x[:, sc, :] - orb_default.x[:, sc, :]
-            plt.semilogy(time_vec/86400, np.linalg.norm(deviation_lof,axis=1)/1e3 ,label=f"deviation sc{sc}", alpha=0.5)
+            plt.semilogy(time_vec/86400, np.linalg.norm(deviation_lof,axis=1)/1e3 ,label=f"deviation sc{sc}", alpha=0.9)
         plt.axhline(1e3, linestyle='--', color='k', label="3 sigma Reference from ESA")
         plt.xlabel("Time [days]")
         plt.legend()
         plt.ylabel("Deviation Radius [km]")
         plt.tight_layout()
-        plt.savefig(name + "_" + "delta_radius.png")
+        plt.savefig("figures_perturbation/"+name + "_" + "delta_radius.png", dpi=300)
