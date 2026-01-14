@@ -45,55 +45,6 @@ psd_interp = CubicSpline(psd[:, 0], psd[:, 1])
 plt.loglog(psd[:, 0], psd[:, 1], label="Original PSD")
 
 
-# %%
-
-def get_response(orbit, T=1.0, dt=10., use_gpu=True, t0 = 10000.0):
-    gb = GBWave(use_gpu=use_gpu, T=T, dt=dt)
-    # default settings
-    # order of the langrangian interpolation
-    order = 25
-    # 1st or 2nd or custom (see docs for custom)
-    tdi_gen = "2nd generation"
-    index_lambda = 6
-    index_beta = 7
-    tdi_kwargs_esa = dict(order=order, tdi=tdi_gen, tdi_chan="AET",)
-    return ResponseWrapper(
-    gb,
-    T,
-    dt,
-    index_lambda,
-    index_beta,
-    t0=t0,
-    flip_hx=False,  # set to True if waveform is h+ - ihx
-    use_gpu=use_gpu,
-    remove_sky_coords=True,  # True if the waveform generator does not take sky coordinates
-    is_ecliptic_latitude=True,  # False if using polar angle (theta)
-    remove_garbage=True,  # removes the beginning of the signal that has bad information
-    orbits=orbit,
-    **tdi_kwargs_esa,
-    )
-
-def get_variation(time_vec, t_initial=0, period=14*86400, rho=1.0):
-    """
-    Generate a periodic variation in the local orbital frame
-    :param time_vec: time vector
-    :param t_initial: initial time
-    :param period: period of the variation
-    :param rho: amplitude of the variation
-    :return: 2D array of shape (len(time_vec), 3)
-    """
-    size = len(time_vec)
-    periodic = sawtooth(2 * np.pi * (time_vec-t_initial)/period)
-    # res =  random_vectors_on_sphere(size=size)[0] * rho * (1 + periodic[:,None])/2
-    periodic = (1-np.cos(2 * np.pi * (time_vec-t_initial)/period)) / 2
-    res =  random_vectors_on_sphere(size=size)[0] * rho * periodic[:,None]
-    # fixed random
-    res = np.ones_like(random_vectors_on_sphere(size=size)) * random_vectors_on_sphere(size=size)[0] * rho
-    # random
-    res = random_vectors_on_sphere(size=size) * rho
-    return res
-    
-
 def inner_product(fft_a, fft_b, psd_, mask_sum, df):
     """
     Compute the inner product of two FFT signals.
@@ -138,70 +89,6 @@ def compute_inn_and_den(fft_def, fft_dev, psd_, mask_sum, df):
     # print("mismatch", mismatch, "snr", snr, "loglike_diff")
     return 1-A_est.get(), phi_est.get(), mismatch.get(), snr.get(), relative_diff_abs.mean().get(), diff_angle.mean().get()
 
-
-def perturbed_static_orbits(arm_lengths, armlength_error, rotation_error, translation_error, rot_fac = 2.127):
-    """ Apply perturbations to the static orbits 
-    
-    We want to create a situation where the armlengths are known very well, but the
-    absolute positions of the spacecraft are not known very well.
-
-    This is achieved by applying a small perturbation to the armlengths
-    followed by a rotation and translation to the spacecraft 
-    positions (around random axis and directions).
-    
-    Parameters
-    ----------
-    arm_lengths : np.array
-        Nominal armlengths of the constellation.
-    armlength_error : float
-        Standard deviation of the perturbation to apply to the armlengths, in meters.
-    rotation_error : float
-        Standard deviation of the rotation to apply to the spacecraft positions, in equivalent meters of displacement.
-    translation_error : float
-        Standard deviation of the translation to apply to the spacecraft positions, in meters.
-
-    """
-    # Create new orbits with perturbed armlengths
-    arm_dev = np.random.normal(0, armlength_error, size=(3,))
-    print("arm_dev", arm_dev)
-    perturbed_ltt_orbits = StaticConstellation.from_armlengths(arm_lengths[0] + arm_dev[0], 
-                                                       arm_lengths[1] + arm_dev[1], 
-                                                       arm_lengths[2] + arm_dev[2])
-    
-    # Apply rotation by an angle phi along a random axis in 3d space
-
-    # Generate a random rotation matrix
-    # Random axis of rotation
-    axis = np.random.randn(3)
-    axis /= np.linalg.norm(axis)  # Normalize the axis
-
-    # Average distance of the spacecraft from the center of mass
-    avg_distance = np.mean(np.linalg.norm(perturbed_ltt_orbits.sc_positions, axis=1))
-
-    # In the small angle approximation, the rotation by an angle phi causes a displacement
-    # of the spacecraft positions by a distance d = r * phi. Solving for phi and using d = error_magnitude gives
-    # phi = d / r
-    # TODO: improve on the math here; not all rotations affect all S/C, so this is
-    # off by a factor of 2 or so; for now just fitted by hand
-    angle = rot_fac * rotation_error / avg_distance
-
-    # Rotation matrix using Rodrigues' rotation formula
-    K = np.array([[0, -axis[2], axis[1]],
-                [axis[2], 0, -axis[0]],
-                [-axis[1], axis[0], 0]])
-    R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * np.outer(axis, axis)
-
-    # Apply the rotation to the spacecraft positions
-    rotated_positions = np.dot(R, perturbed_ltt_orbits.sc_positions.T).T
-
-    # Apply translation to the spacecraft positions
-    translation = np.random.normal(0, translation_error, size=(3,))
-    perturbed_positions = rotated_positions + translation
-    print("translation", translation)
-    print("rotation", angle)
-    # Create a new StaticConstellation object with the perturbed positions
-    perturbed_orbits = StaticConstellation(perturbed_positions[0], perturbed_positions[1], perturbed_positions[2])
-    return perturbed_orbits
 
 def get_orbit(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=10.):
     porbit = perturbed_static_orbits(
@@ -253,14 +140,14 @@ def create_orb_dev(delta_x, fpath, use_gpu):
 
 # %%
 # Real setup
-fpath = "new_orbits.h5"
-orb_default = ESAOrbits(fpath, use_gpu=True)
-deviation = {which: np.zeros_like(getattr(orb_default, which + "_base")) for which in ["ltt", "x", "n", "v"]}
-orb_default.configure(linear_interp_setup=True, deviation=deviation)
-# setup Olaf
-# orb_default = get_orbit(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=0.0, rotation_error=0.0, translation_error=0.0)
+# fpath = "new_orbits.h5"
+# orb_default = ESAOrbits(fpath, use_gpu=True)
 # deviation = {which: np.zeros_like(getattr(orb_default, which + "_base")) for which in ["ltt", "x", "n", "v"]}
 # orb_default.configure(linear_interp_setup=True, deviation=deviation)
+# setup Olaf
+orb_default = get_orbit(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=0.0, rotation_error=0.0, translation_error=0.0)
+deviation = {which: np.zeros_like(getattr(orb_default, which + "_base")) for which in ["ltt", "x", "n", "v"]}
+orb_default.configure(linear_interp_setup=True, deviation=deviation)
 # default orbit
 gb_lisa_esa = get_response(orb_default)
 
@@ -282,11 +169,11 @@ orbit_list = []
 
 for delta_x in sigma_vec:
     # real setup
-    orb_dev = create_orb_dev(50e3, fpath, use_gpu=True)
+    # orb_dev = create_orb_dev(50e3, fpath, use_gpu=True)
     
     # setup olaf
-    # orb_dev = get_orbit(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3)
-    # orb_dev.configure(linear_interp_setup=True)
+    orb_dev = get_orbit(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3)
+    orb_dev.configure(linear_interp_setup=True)
     orbit_list.append(orb_dev)
 
 
@@ -385,7 +272,7 @@ gb_frequency = np.asarray([1e-3])#np.logspace(-4, -0.0, 10)
 fdot = 0.0
 # sky
 import healpy as hp
-nside = 6
+nside = 4
 npix = hp.nside2npix(nside)
 thetas, phis = hp.pix2ang(nside, np.arange(npix))
 # betas ecliptic latitude https://arxiv.org/pdf/2204.06633
@@ -402,7 +289,7 @@ hp.graticule()
 # %%
 import time
 from tqdm import tqdm
-dt = 0.25
+dt = 10.
 T = 1.0/365
 Number_of_deviations = 10
 for _ in range(Number_of_deviations):
@@ -410,8 +297,8 @@ for _ in range(Number_of_deviations):
     orb_dev.configure(linear_interp_setup=True)
     orbit_list.append(orb_dev)
 
-channel_generator = [get_response(orb_dev, T=T, dt=0.25) for orb_dev in orbit_list]
-gb_lisa_esa = get_response(orb_default, T=T, dt=0.25)
+channel_generator = [get_response(orb_dev, T=T, dt=dt) for orb_dev in orbit_list]
+gb_lisa_esa = get_response(orb_default, T=T, dt=dt)
 
 def maximize_snr_over_params(param, channel_generator, dt):
     # h_injection

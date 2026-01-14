@@ -398,6 +398,7 @@ if __name__ == "__main__":
     plt.xlabel("Deviation of SC position [km]")
     plt.ylabel("Count")
     plt.legend()
+    plt.tight_layout()
     plt.savefig("figures_perturbation/"+"DeltX_deviation_x_compare.png", dpi=300)
     plt.close('all')
     mean_dx_periodic, std_dx_periodic = np.mean(np.linalg.norm(delta_x_periodic[:, sc], axis=-1)), np.std(np.linalg.norm(delta_x_periodic[:, sc], axis=-1))
@@ -413,6 +414,7 @@ if __name__ == "__main__":
     # link https://www.politesi.polimi.it/retrieve/f5abe8da-2e5e-4a94-9fac-358e776eb1bb/2025_04_Marchese_Executive_Summary.pdf
     plt.axvline(-1e-9*C_SI, linestyle='--', color='k', label="3-sigma Marchese Executive Summary Fig 11")
     plt.legend()
+    plt.tight_layout()
     plt.savefig("figures_perturbation/"+"LTT_typical_deviation_compare.png", dpi=300)
     plt.close('all')
     # mean_ltt, std_ltt = np.mean(delta_ltt.flatten()), np.std(delta_ltt.flatten())

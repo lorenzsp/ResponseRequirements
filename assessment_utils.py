@@ -20,6 +20,7 @@ np.random.seed(2601)
 from matplotlib import pyplot as plt
 # import for cpu/gpu
 from lisatools.cutils.detector_cpu import pycppDetector as pycppDetector_cpu
+from lisaorbits import StaticConstellation
 
 try:
     import cupy as cp
@@ -34,25 +35,7 @@ LINKS = [12, 23, 31, 13, 32, 21]
 
 LINEAR_INTERP_TIMESTEP = 600.00  # sec (0.25 hr)
 
-# create function to randomly draw parameters
-def draw_parameters(A=1e-22, f=1e-3, fdot=1e-17):
-    if A is None:
-        A = np.random.uniform(1e-24, 1e-22)
-    if f is None:
-        f = np.random.uniform(1e-4, 1e-2)
-    if fdot is None:
-        fdot = np.random.uniform(-1e-17, 1e-17)
-    # draw random parameters
-    cos_inc = np.random.uniform(-1, 1)  # Random cosines of polar angles
-    iota = np.arccos(cos_inc) #np.random.uniform(0, np.pi)
-    phi0 = np.random.uniform(0, 2 * np.pi)
-    psi = np.random.uniform(0, 2 * np.pi)
-    cos_lam = np.random.uniform(-1, 1)  # Random cosines of polar angles
-    lam = np.arccos(cos_lam)-np.pi/2 # np.random.uniform(-np.pi / 2, np.pi / 2)
-    beta = np.random.uniform(0.0, 2 * np.pi)
-    return A, f, fdot, iota, phi0, psi, lam, beta
-
-
+########################################################
 def random_vectors_on_sphere(size):
     """
     Generate an array of random 3D unit vectors uniformly distributed on a sphere.
@@ -73,61 +56,25 @@ def random_vectors_on_sphere(size):
 
     return np.column_stack((x, y, z))
 
-class GBWave:
-    def __init__(self, use_gpu=False, T=1.0, dt=10.0):
-
-        if use_gpu:
-            self.xp = xp
-        else:
-            self.xp = np
-        
-        
-        self.t = self.xp.arange(0.0, T * YRSID_SI, dt)
-        self.window = 1.0 # self.xp.asarray(tukey(len(self.t), alpha=0.01))
-
-    def __call__(self, A, f, fdot, iota, phi0, psi, T=1.0, dt=10.0, hp_flag=1.0, hc_flag=1.0):
-
-        # get the t array 
-        t = self.t
-        cos2psi = self.xp.cos(2.0 * psi)
-        sin2psi = self.xp.sin(2.0 * psi)
-        cosiota = self.xp.cos(iota)
-
-        fddot = 11.0 / 3.0 * fdot ** 2 / f
-
-        # phi0 is phi(t = 0) not phi(t = t0)
-        phase = (
-            2 * np.pi * (f * t + 1.0 / 2.0 * fdot * t ** 2 + 1.0 / 6.0 * fddot * t ** 3)
-            - phi0
-        )
-
-        hSp = -self.xp.cos(phase) * A * (1.0 + cosiota * cosiota) * hp_flag
-        hSc = -self.xp.sin(phase) * 2.0 * A * cosiota * hc_flag
-
-        hp = hSp * cos2psi - hSc * sin2psi
-        hc = hSp * sin2psi + hSc * cos2psi
-
-        # redefine
-        # hp = self.xp.cos(phase) * hp_flag
-        # hc = self.xp.cos(phase) * hc_flag
-
-        # Apply a Tukey window to the signal with alpha=0.01
-        hp *= self.window
-        hc *= self.window
-        
-        return hp + 1j * hc
-    
-    def plot_input_hp_output_A(self, A, f, fdot, iota, phi0, psi, lam, beta, Response, T=1.0, dt=10.0):
-        hp = self.__call__(self, A, f, fdot, iota, phi0, psi, T=1.0, dt=10.0)[0]
-        chans = Response(A, f, fdot, iota, phi0, psi, lam, beta)
-        chans[1] = hp
-        fig, ax = plt.subplots(2, 1, sharex=True)
-        for i, lab in enumerate(["A", "h_plus"]):
-            ax[i].plot(np.arange(len(chans[0])) * dt / YRSID_SI, chans[i])
-            ax[i].set_ylabel(lab)
-        plt.savefig("TD_vars.png",dpi=300)
-
-
+def get_variation(time_vec, t_initial=0, period=14*86400, rho=1.0):
+    """
+    Generate a periodic variation in the local orbital frame
+    :param time_vec: time vector
+    :param t_initial: initial time
+    :param period: period of the variation
+    :param rho: amplitude of the variation
+    :return: 2D array of shape (len(time_vec), 3)
+    """
+    size = len(time_vec)
+    periodic = sawtooth(2 * np.pi * (time_vec-t_initial)/period)
+    # res =  random_vectors_on_sphere(size=size)[0] * rho * (1 + periodic[:,None])/2
+    periodic = (1-np.cos(2 * np.pi * (time_vec-t_initial)/period)) / 2
+    res =  random_vectors_on_sphere(size=size)[0] * rho * periodic[:,None]
+    # fixed random
+    res = np.ones_like(random_vectors_on_sphere(size=size)) * random_vectors_on_sphere(size=size)[0] * rho
+    # random
+    res = random_vectors_on_sphere(size=size) * rho
+    return res
 
 class MyOrbits(Orbits):
     """LISA Orbit Base Class
@@ -916,6 +863,116 @@ def plot_orbit_3d(fpath, T, Nshow=10, lam=None, beta=None, output_file="3d_orbit
     plt.savefig(output_file,dpi=300)
     print(f"3D orbit plot saved to {output_file}")
 
+
+
+def perturbed_static_orbits(arm_lengths, armlength_error, rotation_error, translation_error, rot_fac = 2.127):
+    """ Apply perturbations to the static orbits 
+    
+    We want to create a situation where the armlengths are known very well, but the
+    absolute positions of the spacecraft are not known very well.
+
+    This is achieved by applying a small perturbation to the armlengths
+    followed by a rotation and translation to the spacecraft 
+    positions (around random axis and directions).
+    
+    Parameters
+    ----------
+    arm_lengths : np.array
+        Nominal armlengths of the constellation.
+    armlength_error : float
+        Standard deviation of the perturbation to apply to the armlengths, in meters.
+    rotation_error : float
+        Standard deviation of the rotation to apply to the spacecraft positions, in equivalent meters of displacement.
+    translation_error : float
+        Standard deviation of the translation to apply to the spacecraft positions, in meters.
+
+    """
+    # Create new orbits with perturbed armlengths
+    arm_dev = np.random.normal(0, armlength_error, size=(3,))
+    print("arm_dev", arm_dev)
+    perturbed_ltt_orbits = StaticConstellation.from_armlengths(arm_lengths[0] + arm_dev[0], 
+                                                       arm_lengths[1] + arm_dev[1], 
+                                                       arm_lengths[2] + arm_dev[2])
+    
+    # Apply rotation by an angle phi along a random axis in 3d space
+
+    # Generate a random rotation matrix
+    # Random axis of rotation
+    axis = np.random.randn(3)
+    axis /= np.linalg.norm(axis)  # Normalize the axis
+
+    # Average distance of the spacecraft from the center of mass
+    avg_distance = np.mean(np.linalg.norm(perturbed_ltt_orbits.sc_positions, axis=1))
+
+    # In the small angle approximation, the rotation by an angle phi causes a displacement
+    # of the spacecraft positions by a distance d = r * phi. Solving for phi and using d = error_magnitude gives
+    # phi = d / r
+    # TODO: improve on the math here; not all rotations affect all S/C, so this is
+    # off by a factor of 2 or so; for now just fitted by hand
+    angle = rot_fac * rotation_error / avg_distance
+
+    # Rotation matrix using Rodrigues' rotation formula
+    K = np.array([[0, -axis[2], axis[1]],
+                [axis[2], 0, -axis[0]],
+                [-axis[1], axis[0], 0]])
+    R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * np.outer(axis, axis)
+
+    # Apply the rotation to the spacecraft positions
+    rotated_positions = np.dot(R, perturbed_ltt_orbits.sc_positions.T).T
+
+    # Apply translation to the spacecraft positions
+    translation = np.random.normal(0, translation_error, size=(3,))
+    perturbed_positions = rotated_positions + translation
+    print("translation", translation)
+    print("rotation", angle)
+    # Create a new StaticConstellation object with the perturbed positions
+    perturbed_orbits = StaticConstellation(perturbed_positions[0], perturbed_positions[1], perturbed_positions[2])
+    return perturbed_orbits
+
+
+
+def get_orbit(arm_lengths=[2.5e9, 2.5e9, 2.5e9], armlength_error=1, rotation_error=50e3, translation_error=50e3, dt=10., T=1.0):
+    porbit = perturbed_static_orbits(
+        arm_lengths=arm_lengths, 
+        armlength_error=armlength_error, 
+        rotation_error=rotation_error, 
+        translation_error=translation_error
+    )
+    porbit.write("temp_orbit.h5", dt=dt, size=int(T*YRSID_SI/dt), t0=0.0, mode="w")    
+    return ESAOrbits("temp_orbit.h5",use_gpu=True)
+
+def create_orb_dev(delta_x, fpath, use_gpu):
+    """
+    Create an orb_dev object with deviations based on the given sigma.
+
+    Parameters:
+    delta_x (float): Size of the deviation.
+    fpath (str): File path for the orbit data.
+    use_gpu (bool): Whether to use GPU for computations.
+
+    Returns:
+    ESAOrbits: The orb_dev object with configured deviations.
+    """
+    # create the deviation dictionary
+    orb_dev = ESAOrbits(fpath, use_gpu=use_gpu)
+    deviation = {which: np.zeros_like(getattr(orb_dev, which + "_base")) for which in ["ltt", "x", "n", "v"]}
+    
+    # time
+    time_vec = orb_dev.t_base
+    xbase = orb_dev.x_base
+    local_orbital_frame_pos = np.sum(xbase, axis=1) / 3
+    
+    # loop over spacecraft
+    for sc in range(3):
+        # deviation in the local orbital frame
+        deviation_lof = get_variation(time_vec, t_initial=0, period=14 * 86400, rho=delta_x)
+        deviation["x"][:, sc, :] += deviation_lof
+        deviation["v"][:, sc, :] += np.gradient(deviation_lof, time_vec, axis=0)
+    
+    orb_dev.configure(linear_interp_setup=True, deviation=deviation)
+    return orb_dev
+
+
 ########################################
 @dataclass
 class LISAModelSettings:
@@ -1049,35 +1106,3 @@ def check_lisa_model(model: Any) -> LISAModel:
     return model
 
 
-
-def compute_information_matrix(A, delta_phi, rho_squared=1.0):
-    """
-    Compute the Fisher Information Matrix based on the second derivatives of the log-likelihood.
-
-    Parameters:
-        A (float): Amplitude scaling factor.
-        delta_phi (float): Phase difference in radians.
-        rho_squared (float): The squared signal-to-noise ratio (SNR), ρ².
-
-    Returns:
-        np.ndarray: 2x2 Fisher Information Matrix.
-    """
-    # Compute the second derivatives
-    d2L_dA2 = rho_squared  # -∂²_A ℒ
-    d2L_dphi2 = rho_squared * A * np.cos(delta_phi)  # -∂²_δφ ℒ
-    d2L_dAdphi = -rho_squared * np.sin(delta_phi)  # -∂_A ∂_δφ ℒ
-
-    # Construct the Fisher Information Matrix
-    fisher_matrix = np.array([
-        [d2L_dA2, d2L_dAdphi],
-        [d2L_dAdphi, d2L_dphi2]
-    ])
-
-    return fisher_matrix
-
-A = 1.0  # Example amplitude scaling factor
-delta_phi = 0.0  # Example phase difference in radians
-
-fisher_matrix = compute_information_matrix(A, delta_phi)
-print("Fisher Information Matrix:")
-print(fisher_matrix)
