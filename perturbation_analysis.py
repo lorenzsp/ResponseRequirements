@@ -4,7 +4,7 @@ try:
     import cupy as xp
 except ImportError:
     import numpy as xp
-from da_utils import inner_product, get_sky_grid
+from old_files.da_utils import inner_product, get_sky_grid
 from gb_utils import get_response
 from perturbation_utils import create_orbit_with_periodic_dev, create_orbit_with_static_dev
 from tqdm import tqdm

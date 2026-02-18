@@ -7,9 +7,9 @@ import requests
 from copy import deepcopy
 import h5py
 try:
-    import cupy as xp
+    import cupy as cp
 except ImportError:
-    import numpy as xp
+    import numpy as cp
 from scipy import interpolate
 from scipy.signal.windows import tukey
 from lisatools.utils.constants import *
