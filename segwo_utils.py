@@ -12,7 +12,7 @@ def relative_errors_sky(a, b):
     """ Compute the relative errors between two arrays, 
         wrt. the direction of maximum amplitude
     """
-    return np.abs(a - b) / np.abs(b)#np.average(np.abs(b), axis=2)[:, :, np.newaxis, :, :]
+    return np.abs(a - b) / np.average(np.abs(b), axis=2)[:, :, np.newaxis, :, :]
 
 def absolute_errors(a, b):
     """ Compute the relative errors between two arrays

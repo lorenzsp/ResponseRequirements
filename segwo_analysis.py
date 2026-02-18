@@ -11,6 +11,7 @@ import os
 from perturbation_utils import get_static_variation, create_orbit_with_periodic_dev, plot_orbit_3d
 import sys
 import argparse
+from tqdm import trange
 np.random.seed(2601)
 
 A = (Z2_ETA - X2_ETA) / np.sqrt(2)
@@ -21,21 +22,20 @@ T = (X2_ETA + Y2_ETA + Z2_ETA) / np.sqrt(3)
 # Define a frequency axis
 # random time array for testing
 # array_ltts = np.random.uniform(0, 365*86400, size=1)  # 100 random times over a year
-array_ltts = np.asarray([60 * 86400])  # test at half a year
 
 f = np.logspace(-4, 0., 100)
 
 parser = argparse.ArgumentParser(description="SEGWO Analysis")
-parser.add_argument('--run_flag', type=str, default='static', choices=['static', 'periodic_dev', 'waldemar'],
-                    help="Type of run: static, periodic_dev, or waldemar")
+parser.add_argument('--run_flag', type=str, default='static', choices=['static', 'periodic_dev', 'evolving'], help="Type of run: static, periodic_dev, or evolving")
+parser.add_argument('--time_eval', type=float, default=0.0,help="Time to evaluate the orbits at (in days), matters only for periodic_dev and evolving runs")
 args = parser.parse_args()
 run_flag = args.run_flag
-
+array_ltts = np.asarray([args.time_eval * 86400])  # test at half a year
 print(f"run_flag set to: {run_flag}")
 
 if run_flag == 'static':
     # Define static combination with equal arms
-    N = 100
+    N = 1000
     orbits = StaticConstellation.from_armlengths(2.5e9, 2.5e9, 2.5e9)
 
 if run_flag == 'periodic_dev':
@@ -54,8 +54,8 @@ if run_flag == 'periodic_dev':
     print(f"Distance between SC1 and SC2: {distance.mean()} [m], std: {distance.std()} [Mm]")
     orbits = InterpolatedOrbits(t_orb, x_orb, v_orb, interp_order=3)
 
-if run_flag == 'waldemar':
-    # waldemar's orbits
+if run_flag == 'evolving':
+    # evolving's orbits
     with h5py.File("processed_trajectories.h5", "r") as dset:
         t_orb_dataset = dset["t_interp"][()]
         x_orb_dataset = dset["spacecraft_positions"][()]
@@ -107,10 +107,11 @@ perturbation_params = [
     {"arm_lengths": [2.5e9, 2.5e9, 2.5e9], "armlength_error": 1, "rotation_error": 5e3, "translation_error": 50e3},
 ]
 
-if run_flag == 'waldemar':
-    perturbation_params = perturbation_params[:1]  # only do one realization for waldemar's orbits, since they already include different variations
-    output_dirs = ['segwo_results/']
-    N = realizations - 1
+if run_flag == 'evolving':
+    perturbation_params = perturbation_params[:1]  # only do one realization for evolving's orbits, since they already include different variations
+    std_time = str(array_ltts[0]/86400) + "days"
+    output_dirs = ['segwo_results/'+std_time]
+    N = realizations
 
 for output_dir, params in zip(output_dirs, perturbation_params):
     output_dir += run_flag + "/"
@@ -122,8 +123,8 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     perturbed_ltt = np.zeros((N, 6))
     perturbed_positions = np.zeros((N, 3, 3))
     
-    for i in range(0,N):
-        print(f"  Perturbation {i+1}/{N}")
+    for i in trange(0, N, desc="Perturbations"):
+        # print(f"  Perturbation {i+1}/{N}")
         # old: perturbed_orbit = perturbed_static_orbits(**params)
         
         if run_flag == 'static':
@@ -142,8 +143,8 @@ for output_dir, params in zip(output_dirs, perturbation_params):
             v_orb = perturbed_orbit.v
             perturbed_orbit = InterpolatedOrbits(t_orb, x_orb, v_orb, interp_order=3)
         
-        if run_flag == 'waldemar':
-            # waldemar's orbits
+        if run_flag == 'evolving':
+            # evolving's orbits
             perturbed_orbit = InterpolatedOrbits(t_orb_dataset, x_orb_dataset[i], v_orb_dataset[i], interp_order=3)
         
         perturbed_ltt[i] = perturbed_orbit.compute_ltt(t=array_ltts)
