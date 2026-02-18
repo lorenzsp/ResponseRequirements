@@ -22,7 +22,7 @@ N = 10
 # random time array for testing
 array_ltts = np.asarray([0.0])
 array_ltts = np.random.uniform(0, 365*86400, size=1)  # 100 random times over a year
-array_ltts = np.asarray([0.25*365*86400])  # test at half a year
+array_ltts = np.asarray([0.0])  # test at half a year
 
 f = np.logspace(-4, 0., 100)
 
@@ -91,13 +91,14 @@ strain2x = compute_strain2x(f, betas, lambs, ltts, positions, orbits, A, E, T)
 ##########################
 # Generalized Error Analysis
 ##########################
-output_dirs = ["segwo_results/rotations/", "segwo_results/translations/", "segwo_results/armlengths/"]
+output_dirs = ["segwo_results/rotations/", "segwo_results/translations/", "segwo_results/armlengths/", "segwo_results/all/"]
 
 # Define perturbation parameters for each case
 perturbation_params = [
     {"arm_lengths": [2.5e9, 2.5e9, 2.5e9], "armlength_error": 0, "rotation_error": 5e3, "translation_error": 0},
     {"arm_lengths": [2.5e9, 2.5e9, 2.5e9], "armlength_error": 0, "rotation_error": 0, "translation_error": 50e3},
     {"arm_lengths": [2.5e9, 2.5e9, 2.5e9], "armlength_error": 1, "rotation_error": 0, "translation_error": 0},
+    {"arm_lengths": [2.5e9, 2.5e9, 2.5e9], "armlength_error": 1, "rotation_error": 5e3, "translation_error": 50e3},
 ]
 
 if run_flag == 'waldemar':
