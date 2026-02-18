@@ -12,7 +12,7 @@ def relative_errors_sky(a, b):
     """ Compute the relative errors between two arrays, 
         wrt. the direction of maximum amplitude
     """
-    return np.abs(a - b) / np.average(np.abs(b), axis=2)[:, :, np.newaxis, :, :]
+    return np.abs(a - b) / np.abs(b)#np.average(np.abs(b), axis=2)[:, :, np.newaxis, :, :]
 
 def absolute_errors(a, b):
     """ Compute the relative errors between two arrays
@@ -170,7 +170,7 @@ def compute_strain2x(frequencies, betas, lambs, ltts, positions, orbits, A, E, T
 
 
 
-def plot_strain_errors(f, strain2x_abs_error, strain2x_angle_error, pols = ['h+', 'hx'], output_file="strain2x_errors.png"):
+def plot_strain_errors(f, strain2x_abs_error, strain2x_angle_error, pols = ['h+', 'hx'], output_file="strain2x_errors.png", metric="max"):
     """
     Plots the relative errors in |R| and angle for strain2x and saves the figure.
 
@@ -180,23 +180,31 @@ def plot_strain_errors(f, strain2x_abs_error, strain2x_angle_error, pols = ['h+'
         strain2x_angle_error (array): Relative error in angle array.
         pols (list): List of polarization labels.
         output_file (str): File name to save the plot.
+        metric (str): Metric to use for error calculation ("max", "mean").
     """
-    fig, axs = plt.subplots(2, 1, figsize=(10, 10))
+    if metric == "max":
+        metric_func = np.max
+    elif metric == "mean":
+        metric_func = np.mean
+    else:
+        raise ValueError("Invalid metric. Use 'max' or 'mean'.")
+    
+    fig, axs = plt.subplots(2, 1)
 
     # Plot relative error in |R|
     for i in range(3):
         for j in range(2):
-            axs[0].loglog(f, np.max(strain2x_abs_error[:, :, i, j], axis=1), label=f'Max TDI {"AET"[i]}, {pols[j]}')
+            axs[0].loglog(f, metric_func(strain2x_abs_error[:, :, i, j], axis=1), label=f'{metric_func.__name__} TDI {"AET"[i]}, {pols[j]}')
     axs[0].set_xlabel("Frequency [Hz]")
-    axs[0].set_ylabel("Relative error in |R|")
+    axs[0].set_ylabel("Relative error in Amplitude")
     axs[0].legend()
 
     # Plot relative error in angle
     for i in range(3):
         for j in range(2):
-            axs[1].loglog(f, np.max(strain2x_angle_error[:, :, i, j], axis=1), label=f'Max TDI {"AET"[i]}, {pols[j]}')
+            axs[1].loglog(f, metric_func(strain2x_angle_error[:, :, i, j], axis=1), label=f'{metric_func.__name__} TDI {"AET"[i]}, {pols[j]}')
     axs[1].set_xlabel("Frequency [Hz]")
-    axs[1].set_ylabel("Absolute error in angle")
+    axs[1].set_ylabel("Absolute error in Phase")
     axs[1].legend()
 
     plt.tight_layout()
@@ -204,7 +212,7 @@ def plot_strain_errors(f, strain2x_abs_error, strain2x_angle_error, pols = ['h+'
     plt.close()
 
 
-def plot_gw_response_maps(strain2x_abs_error, f, npix, pols=['h+', 'hx'], folder=""):
+def plot_gw_response_maps(strain2x_abs_error, f, npix, pols=['h+', 'hx'], folder="", metric="max"):
     """
     Plots gravitational wave response sky maps for each polarization and TDI link.
 
@@ -214,7 +222,15 @@ def plot_gw_response_maps(strain2x_abs_error, f, npix, pols=['h+', 'hx'], folder
         npix (int): Number of pixels in the sky map.
         pols (list): List of polarization labels.
         f_eval (int): Index of the frequency to evaluate.
+        metric (str): Metric to use for error calculation ("max", "mean").
     """
+    if metric == "max":
+        metric_func = np.max
+    elif metric == "mean":
+        metric_func = np.mean
+    else:
+        raise ValueError("Invalid metric. Use 'max' or 'mean'.")
+    
     for link in range(3):
         for pol in range(2):
             plt.figure()
@@ -222,7 +238,7 @@ def plot_gw_response_maps(strain2x_abs_error, f, npix, pols=['h+', 'hx'], folder
 
             # Populate the map with the GW response for each pixel
             for pix in range(npix):
-                max_sky = np.max(strain2x_abs_error[:, pix, link, pol], axis=0)
+                max_sky = metric_func(strain2x_abs_error[:, pix, link, pol], axis=0)
                 gw_response_map[pix] = max_sky
 
             # Plotting the map

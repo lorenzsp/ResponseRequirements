@@ -11,6 +11,7 @@ import os
 from perturbation_utils import get_static_variation, create_orbit_with_periodic_dev, plot_orbit_3d
 import sys
 import argparse
+np.random.seed(2601)
 
 A = (Z2_ETA - X2_ETA) / np.sqrt(2)
 E = (X2_ETA - 2 * Y2_ETA + Z2_ETA) / np.sqrt(6)
@@ -18,11 +19,9 @@ T = (X2_ETA + Y2_ETA + Z2_ETA) / np.sqrt(3)
 
 # Choices to run
 # Define a frequency axis
-N = 10
 # random time array for testing
-array_ltts = np.asarray([0.0])
-array_ltts = np.random.uniform(0, 365*86400, size=1)  # 100 random times over a year
-array_ltts = np.asarray([0.0])  # test at half a year
+# array_ltts = np.random.uniform(0, 365*86400, size=1)  # 100 random times over a year
+array_ltts = np.asarray([60 * 86400])  # test at half a year
 
 f = np.logspace(-4, 0., 100)
 
@@ -36,9 +35,11 @@ print(f"run_flag set to: {run_flag}")
 
 if run_flag == 'static':
     # Define static combination with equal arms
+    N = 100
     orbits = StaticConstellation.from_armlengths(2.5e9, 2.5e9, 2.5e9)
 
 if run_flag == 'periodic_dev':
+    N = 10
     # periodic deviation
     orbits = create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=False, 
                                                         armlength_error=0.0, 
@@ -59,10 +60,12 @@ if run_flag == 'waldemar':
         t_orb_dataset = dset["t_interp"][()]
         x_orb_dataset = dset["spacecraft_positions"][()]
         v_orb_dataset = dset["spacecraft_velocities"][()]
+        ltts = dset['owlt_12_23_31_13_32_21'][()]
     
     t_orb = t_orb_dataset
     x_orb = np.median(x_orb_dataset, axis=0)  # Use the median over all realizations
     v_orb = np.median(v_orb_dataset, axis=0)  # Use the median over all realizations
+    ltts_median = np.median(ltts, axis=0)  # Use the median over all realizations
     print(t_orb.shape, x_orb.shape, v_orb.shape)
     distance = np.linalg.norm(x_orb[:,0] - x_orb[:,1],axis=-1)/1e9
     print(f"Distance between SC1 and SC2: {distance.mean()} [m], std: {distance.std()} [Mm]")
@@ -75,8 +78,7 @@ ltts = orbits.compute_ltt(t=array_ltts)
 print("Light travel times shape", ltts.shape)
 positions = orbits.compute_position(t=array_ltts)
 print("Positions shape", positions.shape)
-# Compute the signal covariance matrix for eta variables
-
+# plt.figure(); plt.hist((ltts_median[:1] - ltts).flatten()); plt.show()
 # We use healpy to define a grid of points on the sky
 nside = 6
 
@@ -91,13 +93,17 @@ strain2x = compute_strain2x(f, betas, lambs, ltts, positions, orbits, A, E, T)
 ##########################
 # Generalized Error Analysis
 ##########################
-output_dirs = ["segwo_results/rotations/", "segwo_results/translations/", "segwo_results/armlengths/", "segwo_results/all/"]
+output_dirs = [
+    # "segwo_results/rotations/", 
+    # "segwo_results/translations/", 
+    # "segwo_results/armlengths/", 
+    "segwo_results/"]
 
 # Define perturbation parameters for each case
 perturbation_params = [
-    {"arm_lengths": [2.5e9, 2.5e9, 2.5e9], "armlength_error": 0, "rotation_error": 5e3, "translation_error": 0},
-    {"arm_lengths": [2.5e9, 2.5e9, 2.5e9], "armlength_error": 0, "rotation_error": 0, "translation_error": 50e3},
-    {"arm_lengths": [2.5e9, 2.5e9, 2.5e9], "armlength_error": 1, "rotation_error": 0, "translation_error": 0},
+    # {"arm_lengths": [2.5e9, 2.5e9, 2.5e9], "armlength_error": 0, "rotation_error": 5e3, "translation_error": 0},
+    # {"arm_lengths": [2.5e9, 2.5e9, 2.5e9], "armlength_error": 0, "rotation_error": 0, "translation_error": 50e3},
+    # {"arm_lengths": [2.5e9, 2.5e9, 2.5e9], "armlength_error": 1, "rotation_error": 0, "translation_error": 0},
     {"arm_lengths": [2.5e9, 2.5e9, 2.5e9], "armlength_error": 1, "rotation_error": 5e3, "translation_error": 50e3},
 ]
 
@@ -154,7 +160,7 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     plt.ylabel("Count")
     plt.title("Histogram of light travel time residuals")
     plt.legend()
-    plt.savefig(os.path.join(output_dir, "ltt_residuals_histogram.png"))
+    plt.savefig(os.path.join(output_dir, "ltt_residuals_histogram.png"), dpi=300)
     plt.close()
     
     position_residuals = perturbed_positions - positions
@@ -170,10 +176,11 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     plt.ylabel("Count")
     plt.title("Histogram of position residuals")
     plt.legend()
-    plt.savefig(os.path.join(output_dir, "position_residuals_histogram.png"))
+    plt.savefig(os.path.join(output_dir, "position_residuals_histogram.png"), dpi=300)
     plt.close()
     
     strain2x_perturbed = compute_strain2x(f, betas, lambs, perturbed_ltt, perturbed_positions, orbits, A, E, T)
+    
     rel_err_sky = relative_errors_sky(np.abs(strain2x_perturbed), np.abs(strain2x))
     thr = 1e-10
     # mask where the denominator is zero
@@ -214,20 +221,24 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     
     
     # Save the plots
-    plot_strain_errors(
-        f, strain2x_abs_error, strain2x_angle_error, 
-        output_file=os.path.join(output_dir, "strain2x_errors_frequency.png")
-    )
+    for metric in ["mean", "max"]:
+        plot_strain_errors(
+            f, strain2x_abs_error, strain2x_angle_error, 
+            output_file=os.path.join(output_dir, metric + "_strain2x_errors_frequency.png"),
+            metric=metric
+        )   
 
-    plot_gw_response_maps(
-        strain2x_abs_error, f, npix, 
-        folder=output_dir + 'amplitude_errors',
-    )
+        plot_gw_response_maps(
+            strain2x_abs_error, f, npix, 
+            folder=output_dir + metric+ '_amplitude_errors',
+            metric=metric
+        )
 
-    plot_gw_response_maps(
-        strain2x_angle_error, f, npix, 
-        folder=output_dir + 'phase_errors',
-    )
+        plot_gw_response_maps(
+            strain2x_angle_error, f, npix, 
+            folder=output_dir + metric + '_phase_errors',
+            metric=metric
+        )
 
     # Compute violation ratios
     amp_violation_ratio, phase_violation_ratio = compute_violation_ratios(
