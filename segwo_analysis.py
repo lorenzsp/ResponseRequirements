@@ -23,7 +23,7 @@ T = (X2_ETA + Y2_ETA + Z2_ETA) / np.sqrt(3)
 # random time array for testing
 # array_ltts = np.random.uniform(0, 365*86400, size=1)  # 100 random times over a year
 
-f = np.logspace(-4, 0., 100)
+f = np.logspace(-4, 0., 200)
 
 parser = argparse.ArgumentParser(description="SEGWO Analysis")
 parser.add_argument('--run_flag', type=str, default='static', choices=['static', 'periodic_dev', 'evolving'], help="Type of run: static, periodic_dev, or evolving")
@@ -119,6 +119,8 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     print("Perturbation parameters:", params)
     print(f"Running analysis for {output_dir}...")
     os.makedirs(output_dir, exist_ok=True)
+    plot_response(f, npix, np.abs(strain2x[0]), folder=output_dir, output_file="initial_strain2x.png")
+
 
     perturbed_ltt = np.zeros((N, 6))
     perturbed_positions = np.zeros((N, 3, 3))

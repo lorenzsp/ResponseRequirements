@@ -170,6 +170,64 @@ def compute_strain2x(frequencies, betas, lambs, ltts, positions, orbits, A, E, T
 
 
 
+def plot_response(f, npix, strain2x_abs, pols = ['h+', 'hx'], folder="", output_file="strain2x.png", metric="mean"):
+    """
+    Plots the relative errors in |R| and angle for strain2x and saves the figure.
+
+    Parameters:
+        f (array): Frequency array.
+        npix (int): Number of pixels in the sky map.
+        strain2x_abs (array): Absolute value of strain2x array.
+        pols (list): List of polarization labels.
+        output_file (str): File name to save the plot.
+        metric (str): Metric to use for error calculation ("max", "mean").
+    """
+    if metric == "max":
+        metric_func = np.max
+    elif metric == "mean":
+        metric_func = np.mean
+    elif metric == "min":
+        metric_func = np.min
+    else:
+        raise ValueError("Invalid metric. Use 'max', 'mean', or 'min'.")
+
+    fig, axs = plt.subplots(1, 1)
+
+    # Plot relative error in |R|
+    for i in range(3):
+        for j in range(2):
+            axs.loglog(f, metric_func(strain2x_abs[:, :, i, j], axis=1), label=f'{metric_func.__name__} TDI {"AET"[i]}, {pols[j]}')
+    axs.set_xlabel("Frequency [Hz]")
+    axs.set_ylabel("Amplitude")
+    axs.legend()
+
+    plt.tight_layout()
+    plt.savefig(folder + output_file, dpi=300)
+    plt.close()
+    
+    
+    for link in range(3):
+        for pol in range(2):
+            plt.figure()
+            gw_response_map = np.zeros(npix)
+
+            # Populate the map with the GW response for each pixel
+            for pix in range(npix):
+                max_sky = metric_func(strain2x_abs[:, pix, link, pol], axis=0)
+                gw_response_map[pix] = max_sky
+
+            # Plotting the map
+            hp.mollview(
+                gw_response_map,
+                title=f"Gravitational Wave Response Sky Map for {pols[pol]}, TDI {'AET'[link]}",
+                rot=[0, 0]
+            )
+            hp.graticule()
+            plt.savefig(folder + f"gw_response_map_{pols[pol]}_link{link}.png", dpi=300)
+            plt.close()
+
+
+
 def plot_strain_errors(f, strain2x_abs_error, strain2x_angle_error, pols = ['h+', 'hx'], output_file="strain2x_errors.png", metric="max"):
     """
     Plots the relative errors in |R| and angle for strain2x and saves the figure.
