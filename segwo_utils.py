@@ -12,7 +12,7 @@ def relative_errors_sky(a, b):
     """ Compute the relative errors between two arrays, 
         wrt. the direction of maximum amplitude
     """
-    return np.abs(a - b) / np.average(np.abs(b), axis=2)[:, :, np.newaxis, :, :]
+    return np.abs(a - b) / np.abs(b) # np.average(np.abs(b), axis=(1,2))[:, np.newaxis, np.newaxis, :, :]
 
 def absolute_errors(a, b):
     """ Compute the relative errors between two arrays
@@ -170,7 +170,7 @@ def compute_strain2x(frequencies, betas, lambs, ltts, positions, orbits, A, E, T
 
 
 
-def plot_response(f, npix, strain2x_abs, pols = ['h+', 'hx'], folder="", output_file="strain2x.png", metric="mean"):
+def plot_response(f, npix, strain2x_abs, pols = ['h+', 'hx'], folder="", output_file="strain2x.png", metric="min"):
     """
     Plots the relative errors in |R| and angle for strain2x and saves the figure.
 

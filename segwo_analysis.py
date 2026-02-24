@@ -23,7 +23,7 @@ T = (X2_ETA + Y2_ETA + Z2_ETA) / np.sqrt(3)
 # random time array for testing
 # array_ltts = np.random.uniform(0, 365*86400, size=1)  # 100 random times over a year
 
-f = np.logspace(-4, 0., 200)
+f = np.logspace(-4, 0., 100)
 
 parser = argparse.ArgumentParser(description="SEGWO Analysis")
 parser.add_argument('--run_flag', type=str, default='static', choices=['static', 'periodic_dev', 'evolving'], help="Type of run: static, periodic_dev, or evolving")
@@ -119,7 +119,7 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     print("Perturbation parameters:", params)
     print(f"Running analysis for {output_dir}...")
     os.makedirs(output_dir, exist_ok=True)
-    plot_response(f, npix, np.abs(strain2x[0]), folder=output_dir, output_file="initial_strain2x.png")
+    plot_response(f, npix, np.abs(strain2x[0]), folder=output_dir, output_file="initial_strain2x.png", metric="max")
 
 
     perturbed_ltt = np.zeros((N, 6))
@@ -185,7 +185,8 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     strain2x_perturbed = compute_strain2x(f, betas, lambs, perturbed_ltt, perturbed_positions, orbits, A, E, T)
     
     rel_err_sky = relative_errors_sky(np.abs(strain2x_perturbed), np.abs(strain2x))
-    thr = 1e-10
+    # define minimum of response
+    thr = 1e-12
     # mask where the denominator is zero
     mask = np.abs(strain2x[0]) < thr
     # count the number zeros
