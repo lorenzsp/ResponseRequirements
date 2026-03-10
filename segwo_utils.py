@@ -9,12 +9,8 @@ from pytdi.michelson import X2_ETA, Y2_ETA, Z2_ETA
 from segwo.response import compute_strain2link
 from segwo.cov import construct_mixing_from_pytdi, compose_mixings
 import scipy.interpolate
-
-#: ((3,) ndarray) Spacecraft indices.
-SC = np.array([1, 2, 3])
-
-#: ((6,) ndarray) Link (or MOSA) indices.
-LINKS = np.array([12, 23, 31, 13, 32, 21])
+from lisaconstants.indexing import LINKS
+from lisaconstants.indexing import SPACECRAFT as SC
 
 class InterpolatedOrbits(Orbits):
     """Interpolate an array of spacecraft positions.
@@ -86,38 +82,38 @@ class InterpolatedOrbits(Orbits):
         )
 
         # Compute spline interpolation for positions
-        self.interp_x = {sc: interpolate(self.spacecraft_positions[:, sc - 1, 0]) for sc in self.SC}
-        self.interp_y = {sc: interpolate(self.spacecraft_positions[:, sc - 1, 1]) for sc in self.SC}
-        self.interp_z = {sc: interpolate(self.spacecraft_positions[:, sc - 1, 2]) for sc in self.SC}
+        self.interp_x = {sc: interpolate(self.spacecraft_positions[:, sc - 1, 0]) for sc in SC}
+        self.interp_y = {sc: interpolate(self.spacecraft_positions[:, sc - 1, 1]) for sc in SC}
+        self.interp_z = {sc: interpolate(self.spacecraft_positions[:, sc - 1, 2]) for sc in SC}
 
         if spacecraft_velocities is None:
             # Compute derivatives of spline objects for spacecraft velocities
-            self.interp_vx = {sc: self.interp_x[sc].derivative() for sc in self.SC}
-            self.interp_vy = {sc: self.interp_y[sc].derivative() for sc in self.SC}
-            self.interp_vz = {sc: self.interp_z[sc].derivative() for sc in self.SC}
+            self.interp_vx = {sc: self.interp_x[sc].derivative() for sc in SC}
+            self.interp_vy = {sc: self.interp_y[sc].derivative() for sc in SC}
+            self.interp_vz = {sc: self.interp_z[sc].derivative() for sc in SC}
         else:
             # Compute spline interpolation for velocities
-            self.interp_vx = {sc: interpolate(spacecraft_velocities[:, sc - 1, 0]) for sc in self.SC}
-            self.interp_vy = {sc: interpolate(spacecraft_velocities[:, sc - 1, 1]) for sc in self.SC}
-            self.interp_vz = {sc: interpolate(spacecraft_velocities[:, sc - 1, 2]) for sc in self.SC}
+            self.interp_vx = {sc: interpolate(spacecraft_velocities[:, sc - 1, 0]) for sc in SC}
+            self.interp_vy = {sc: interpolate(spacecraft_velocities[:, sc - 1, 1]) for sc in SC}
+            self.interp_vz = {sc: interpolate(spacecraft_velocities[:, sc - 1, 2]) for sc in SC}
 
         # Compute spline interpolation for light travel times if provided
         if ltts is not None:
-            print("Interpolating light travel times (ltts). Make sure that ltts are in the same order as LINKS:", self.LINKS)
-            self.interp_ltt = {link: interpolate(ltts[:, ind]) for ind,link in enumerate(self.LINKS)}
+            print("Interpolating light travel times (ltts). Make sure that ltts are in the same order as LINKS:", LINKS)
+            self.interp_ltt = {link: interpolate(ltts[:, ind]) for ind,link in enumerate(LINKS)}
         else:
             self.interp_ltt = None
         
         # Compute derivatives of spline objects for spacecraft accelerations
-        self.interp_ax = {sc: self.interp_vx[sc].derivative() for sc in self.SC}
-        self.interp_ay = {sc: self.interp_vy[sc].derivative() for sc in self.SC}
-        self.interp_az = {sc: self.interp_vz[sc].derivative() for sc in self.SC}
+        self.interp_ax = {sc: self.interp_vx[sc].derivative() for sc in SC}
+        self.interp_ay = {sc: self.interp_vy[sc].derivative() for sc in SC}
+        self.interp_az = {sc: self.interp_vz[sc].derivative() for sc in SC}
 
         self.interp_dtau = {}
         self.interp_tau = {}
         self.tau_init = {}
         self.tau_t = {}
-        for sc in self.SC:
+        for sc in SC:
             pos_norm = norm(self.spacecraft_positions[:, sc - 1])
             v_squared = self.interp_vx[sc](self.t_interp)**2 \
                 + self.interp_vy[sc](self.t_interp)**2 \
@@ -438,6 +434,7 @@ def plot_response(f, npix, strain2x_abs, pols = ['h+', 'hx'], folder="", output_
     for i in range(3):
         for j in range(2):
             axs.loglog(f, metric_func(strain2x_abs[:, :, i, j], axis=1), label=f'{metric_func.__name__} TDI {"AET"[i]}, {pols[j]}')
+    axs.set_ylim(1e-15, 100)
     axs.set_xlabel("Frequency [Hz]")
     axs.set_ylabel("Amplitude")
     axs.legend()

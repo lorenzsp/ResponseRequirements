@@ -5,6 +5,9 @@ import healpy as hp
 from lisaorbits import StaticConstellation, ResampledOrbits
 
 from lisaconstants import c
+from lisaconstants.indexing import LINKS
+from lisaconstants.indexing import SPACECRAFT as SC
+
 from pytdi.michelson import X2_ETA, Y2_ETA, Z2_ETA
 from segwo_utils import InterpolatedOrbits, compute_strain2x, plot_response, plot_strain_errors, plot_gw_response_maps, compute_violation_ratios, relative_errors_sky, absolute_errors
 import os
@@ -122,7 +125,7 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     print("Perturbation parameters:", params)
     print(f"Running analysis for {output_dir}...")
     os.makedirs(output_dir, exist_ok=True)
-    plot_response(f, npix, np.abs(strain2x[0]), folder=output_dir, output_file="initial_strain2x.png", metric="max")
+    plot_response(f, npix, np.abs(strain2x[0]), folder=output_dir, output_file="initial_strain2x.png", metric="mean")
 
 
     perturbed_ltt = np.zeros((N, 6))
@@ -160,11 +163,11 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     
     ltt_residuals = perturbed_ltt - ltts
     for i in range(6):
-        print(f"ltt std for link {orbits.LINKS[i]}", np.std(ltt_residuals[:, i])*c, "meters")
+        print(f"ltt std for link {LINKS[i]}", np.std(ltt_residuals[:, i])*c, "meters")
     # create histograms of the residuals
     plt.figure()
     for i in range(6):
-        plt.hist(ltt_residuals[:, i], bins=20, alpha=0.5, label=f"Link {orbits.LINKS[i]}")
+        plt.hist(ltt_residuals[:, i], bins=20, alpha=0.5, label=f"Link {LINKS[i]}")
     plt.xlabel("Light travel time residuals [s]")
     plt.ylabel("Count")
     plt.title("Histogram of light travel time residuals")
