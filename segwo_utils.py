@@ -388,7 +388,8 @@ def compute_strain2x(frequencies, betas, lambs, ltts, positions, orbits, A, E, T
         The composed mixing matrix to go directly from strain to TDI variables.
     """
     # Compute the complex signal response for the given frequencies and sky locations
-    strain2link = compute_strain2link(frequencies, betas, lambs, ltts, positions)
+    # methods "baghi+23" and "hartwig+23" are available, the latter is more accurate but also more computationally expensive
+    strain2link = compute_strain2link(frequencies, betas, lambs, ltts, positions, method="baghi+23")
     # Shape: times, frequencies, pixels, links, polarizations
     # Ie., it's the mixing matrix to go from h+/hx in terms of strain to single link
     # response in terms of fractional frequency deviation. See segwo documentation for details.
