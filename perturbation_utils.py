@@ -6,7 +6,7 @@ from lisatools.utils.constants import *
 from matplotlib import pyplot as plt
 from scipy.interpolate import CubicSpline
 
-plt.rcParams["text.usetex"] = True
+plt.rcParams["text.usetex"] = False
 plt.rcParams["font.family"] = "serif"
 plt.rcParams["font.serif"] = ["Computer Modern"]
 

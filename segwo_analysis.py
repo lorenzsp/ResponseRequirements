@@ -1,6 +1,7 @@
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
+plt.rcParams['text.usetex'] = False
 import healpy as hp
 from lisaorbits import StaticConstellation, ResampledOrbits
 
@@ -26,7 +27,7 @@ T = (X2_ETA + Y2_ETA + Z2_ETA) / np.sqrt(3)
 # random time array for testing
 # array_ltts = np.random.uniform(0, 365*86400, size=1)  # 100 random times over a year
 
-f = np.logspace(-4, 0., 100)
+f = np.logspace(-4, 0., 500)
 
 parser = argparse.ArgumentParser(description="SEGWO Analysis")
 parser.add_argument('--run_flag', type=str, default='static', choices=['static', 'periodic_dev', 'evolving'], help="Type of run: static, periodic_dev, or evolving")
@@ -165,12 +166,13 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     for i in range(6):
         print(f"ltt std for link {LINKS[i]}", np.std(ltt_residuals[:, i])*c, "meters")
     # create histograms of the residuals
-    plt.figure()
-    for i in range(6):
-        plt.hist(ltt_residuals[:, i], bins=20, alpha=0.5, label=f"Link {LINKS[i]}")
+    linestyle = ['-', '--', '-.']
+    plt.figure(figsize=(3.25,2))
+    for i in range(3):
+        plt.hist(ltt_residuals[:, i], bins=20, alpha=0.5, label=f"Link {LINKS[i]}", density=False, histtype='step', linestyle=linestyle[i], linewidth=2.5)
     plt.xlabel("Light travel time residuals [s]")
-    plt.ylabel("Count")
-    plt.title("Histogram of light travel time residuals")
+    plt.ylabel("Counts")
+    # plt.title("Histogram of light travel time residuals")
     plt.legend()
     plt.savefig(os.path.join(output_dir, "ltt_residuals_histogram.png"), dpi=300)
     plt.close()
@@ -179,14 +181,14 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     for i in range(3):
         print(f"Position std for sc {i}:", np.std(position_residuals[:,i])/1e3, "kilometers")
     # create histograms of the position residuals
-    plt.figure()
-    for i in range(3):
-        plt.hist(position_residuals[:, i, 0]/1e3, bins=20, alpha=0.5, label=f"SC {i} x")
-        plt.hist(position_residuals[:, i, 1]/1e3, bins=20, alpha=0.5, label=f"SC {i} y")
-        plt.hist(position_residuals[:, i, 2]/1e3, bins=20, alpha=0.5, label=f"SC {i} z")
+    plt.figure(figsize=(3.25,2))
+    for i in range(1):
+        plt.hist(position_residuals[:, i, 0]/1e3, bins=20, alpha=0.5, label=f"x component", density=False, histtype='step', linestyle=linestyle[0], linewidth=2.5)
+        plt.hist(position_residuals[:, i, 1]/1e3, bins=20, alpha=0.5, label=f"y component", density=False, histtype='step', linestyle=linestyle[1], linewidth=2.5)
+        plt.hist(position_residuals[:, i, 2]/1e3, bins=20, alpha=0.5, label=f"z component", density=False, histtype='step', linestyle=linestyle[2], linewidth=2.5)
     plt.xlabel("Position residuals (kilometers)")
-    plt.ylabel("Count")
-    plt.title("Histogram of position residuals")
+    plt.ylabel("Counts")
+    # plt.title("Histogram of position residuals")
     plt.legend()
     plt.savefig(os.path.join(output_dir, "position_residuals_histogram.png"), dpi=300)
     plt.close()

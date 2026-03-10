@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+plt.rcParams['text.usetex'] = False
 import healpy as hp
 from lisaorbits.utils import dot, norm, receiver, emitter, arrayindex, atleast_2d
 
