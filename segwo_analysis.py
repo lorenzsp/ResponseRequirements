@@ -2,7 +2,7 @@ import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 import healpy as hp
-from lisaorbits import StaticConstellation, ResampledOrbits, InterpolatedOrbits
+from lisaorbits import StaticConstellation, ResampledOrbits
 
 from lisaconstants import c
 from pytdi.michelson import X2_ETA, Y2_ETA, Z2_ETA
@@ -60,18 +60,21 @@ if run_flag == 'evolving':
         t_orb_dataset = dset["t_interp"][()]
         x_orb_dataset = dset["spacecraft_positions"][()]
         v_orb_dataset = dset["spacecraft_velocities"][()]
-        ltts = dset['owlt_12_23_31_13_32_21'][()]
+        ltts_dataset = dset['owlt_12_23_31_13_32_21'][()]
     
     t_orb = t_orb_dataset
     x_orb = np.median(x_orb_dataset, axis=0)  # Use the median over all realizations
     v_orb = np.median(v_orb_dataset, axis=0)  # Use the median over all realizations
-    ltts_median = np.median(ltts, axis=0)  # Use the median over all realizations
+    ltts_median = np.median(ltts_dataset, axis=0)  # Use the median over all realizations
     print(t_orb.shape, x_orb.shape, v_orb.shape)
     distance = np.linalg.norm(x_orb[:,0] - x_orb[:,1],axis=-1)/1e9
     print(f"Distance between SC1 and SC2: {distance.mean()} [m], std: {distance.std()} [Mm]")
     realizations = x_orb_dataset.shape[0]
     print(f"Number of realizations: {realizations}")
-    orbits = InterpolatedOrbits(t_orb, x_orb, v_orb, interp_order=3)
+    orbits = InterpolatedOrbits(t_orb, x_orb, 
+                                spacecraft_velocities=v_orb,
+                                ltts=ltts_median,
+                                interp_order=3)
 
 # Compute the positions of the spacecraft and the light travel times at t=0.0
 ltts = orbits.compute_ltt(t=array_ltts)
@@ -147,8 +150,11 @@ for output_dir, params in zip(output_dirs, perturbation_params):
         
         if run_flag == 'evolving':
             # evolving's orbits
-            perturbed_orbit = InterpolatedOrbits(t_orb_dataset, x_orb_dataset[i], v_orb_dataset[i], interp_order=3)
-        
+            perturbed_orbit = InterpolatedOrbits(t_orb_dataset, 
+                                                 x_orb_dataset[i], 
+                                                 spacecraft_velocities=v_orb_dataset[i], 
+                                                 ltts=ltts_dataset[i],
+                                                 interp_order=3)
         perturbed_ltt[i] = perturbed_orbit.compute_ltt(t=array_ltts)
         perturbed_positions[i] = perturbed_orbit.compute_position(t=array_ltts)
     

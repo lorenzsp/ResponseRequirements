@@ -21,8 +21,8 @@ T = (X2_ETA + Y2_ETA + Z2_ETA) / np.sqrt(3)
 # random time array for testing
 # array_ltts = np.random.uniform(0, 365*86400, size=1)  # 100 random times over a year
 
-f = np.logspace(-4, 0., 500)
-array_ltts = np.linspace(0, 365*86400, 120)  # 100 time points over a year
+f = np.logspace(-4, 0., 300)
+array_ltts = np.linspace(0, 365*86400/12, 120)  # 100 time points over a year
 
 # evolving's orbits
 with h5py.File("processed_trajectories.h5", "r") as dset:

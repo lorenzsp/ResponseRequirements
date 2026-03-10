@@ -1,11 +1,251 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import healpy as hp
-from lisaorbits import StaticConstellation
-from lisaconstants import c
+from lisaorbits.utils import dot, norm, receiver, emitter, arrayindex, atleast_2d
+
+from lisaorbits import StaticConstellation, Orbits
+from lisaconstants import SUN_SCHWARZSCHILD_RADIUS, c
 from pytdi.michelson import X2_ETA, Y2_ETA, Z2_ETA
 from segwo.response import compute_strain2link
 from segwo.cov import construct_mixing_from_pytdi, compose_mixings
+import scipy.interpolate
+
+#: ((3,) ndarray) Spacecraft indices.
+SC = np.array([1, 2, 3])
+
+#: ((6,) ndarray) Link (or MOSA) indices.
+LINKS = np.array([12, 23, 31, 13, 32, 21])
+
+class InterpolatedOrbits(Orbits):
+    """Interpolate an array of spacecraft positions.
+
+    Splines are used to interpolate the spacecraft positions and velocities. The
+    analytic derivatives of the splines are used to compute spacecraft velocities
+    and accelerations if they are not provided.
+
+    TPS deviations are numerically integrated.
+
+    Args:
+        t_interp ((N,) array-like): interpolating TCB times (needs to be ordered) [s]
+        spacecraft_positions ((N, 3, 3) array-like):
+            array of spacecraft positions with dimension ``(t, sc, coordinate)`` [m]
+        spacecraft_velocities ((N, 3, 3) array-like or None):
+            array of spacecraft velocities with dimension ``(t, sc, coordinate)``
+            [m/s], or None to compute velocities as the derivatives of the
+            interpolated positions
+        interp_order (int): interpolation order to be used, 3 to 5
+        ext (str): extrapolation mode for elements not in the interval defined by the knot sequence
+        check_input (bool):
+            whether to check that input contains only finite numbers -- disabling may give
+            a performance gain, but may result in problems (crashes, non-termination or invalid results)
+            if input file contains infinities or ``NaNs``
+        **kwargs: all other args from :class:`lisaorbits.Orbits`
+
+    Raises:
+        ValueError: if interp_order is not valid
+    """
+
+    def __init__(self,
+                 t_interp,
+                 spacecraft_positions,
+                 spacecraft_velocities=None,
+                 ltts=None,
+                 interp_order=5,
+                 ext='raise',
+                 check_input=True,
+                 **kwargs):
+
+        super().__init__(**kwargs)
+
+        #: array: Interpolating TCB times [s].
+        self.t_interp = np.asarray(t_interp)
+        #: array: Spacecraft positions [m].
+        self.spacecraft_positions = np.asarray(spacecraft_positions)
+        #: array: Spacecraft velocities [m/s].
+        self.spacecraft_velocities = np.asarray(spacecraft_velocities) \
+            if spacecraft_velocities is not None \
+            else None
+        #: int: Spline interpolation order.
+        self.interp_order = int(interp_order)
+        if self.interp_order < 3 or self.interp_order > 5:
+            raise ValueError(f"Invalid value for '{self.interp_order}', must be 3, 4 or 5.")
+        #: str: Extrapolation mode for elements not in the interval defined by the knot sequence.
+        self.ext = str(ext)
+        #: bool: Whether to check that input contains only finite numbers.
+        self.check_input = bool(check_input)
+
+        # Check t_interp, spacecraft_positions and spacecraft_velocities' shapes
+        self._check_shapes()
+
+        # pylint: disable=unnecessary-lambda-assignment
+        interpolate = lambda x: scipy.interpolate.InterpolatedUnivariateSpline(
+            self.t_interp, x,
+            k=self.interp_order,
+            ext=self.ext,
+            check_finite=self.check_input
+        )
+
+        # Compute spline interpolation for positions
+        self.interp_x = {sc: interpolate(self.spacecraft_positions[:, sc - 1, 0]) for sc in self.SC}
+        self.interp_y = {sc: interpolate(self.spacecraft_positions[:, sc - 1, 1]) for sc in self.SC}
+        self.interp_z = {sc: interpolate(self.spacecraft_positions[:, sc - 1, 2]) for sc in self.SC}
+
+        if spacecraft_velocities is None:
+            # Compute derivatives of spline objects for spacecraft velocities
+            self.interp_vx = {sc: self.interp_x[sc].derivative() for sc in self.SC}
+            self.interp_vy = {sc: self.interp_y[sc].derivative() for sc in self.SC}
+            self.interp_vz = {sc: self.interp_z[sc].derivative() for sc in self.SC}
+        else:
+            # Compute spline interpolation for velocities
+            self.interp_vx = {sc: interpolate(spacecraft_velocities[:, sc - 1, 0]) for sc in self.SC}
+            self.interp_vy = {sc: interpolate(spacecraft_velocities[:, sc - 1, 1]) for sc in self.SC}
+            self.interp_vz = {sc: interpolate(spacecraft_velocities[:, sc - 1, 2]) for sc in self.SC}
+
+        # Compute spline interpolation for light travel times if provided
+        if ltts is not None:
+            print("Interpolating light travel times (ltts). Make sure that ltts are in the same order as LINKS:", self.LINKS)
+            self.interp_ltt = {link: interpolate(ltts[:, ind]) for ind,link in enumerate(self.LINKS)}
+        else:
+            self.interp_ltt = None
+        
+        # Compute derivatives of spline objects for spacecraft accelerations
+        self.interp_ax = {sc: self.interp_vx[sc].derivative() for sc in self.SC}
+        self.interp_ay = {sc: self.interp_vy[sc].derivative() for sc in self.SC}
+        self.interp_az = {sc: self.interp_vz[sc].derivative() for sc in self.SC}
+
+        self.interp_dtau = {}
+        self.interp_tau = {}
+        self.tau_init = {}
+        self.tau_t = {}
+        for sc in self.SC:
+            pos_norm = norm(self.spacecraft_positions[:, sc - 1])
+            v_squared = self.interp_vx[sc](self.t_interp)**2 \
+                + self.interp_vy[sc](self.t_interp)**2 \
+                + self.interp_vz[sc](self.t_interp)**2
+            dtau = -0.5 * (SUN_SCHWARZSCHILD_RADIUS / pos_norm + v_squared / c**2)
+            self.interp_dtau[sc] = interpolate(dtau)
+            # Antiderivative of dtau is integral from t_interp_0 to t, so tau(t) - tau(t_interp_0)
+            # To use initial condition, we compute integral from t_init to t, which
+            # is tau(t) - tau(t_init) = tau(t), but also int_{t_init}^{t_interp_0} + int_{t_interp_0}^t
+            self.tau_t[sc] = self.interp_dtau[sc].antiderivative() # int_{t_interp_0}^t dtau
+            self.tau_init[sc] = self.tau_t[sc](self.t_init)  # int_{t_interp_0}^{t_init} dtau
+            self.interp_tau[sc] = lambda t, sc=sc: self.tau_t[sc](t) - self.tau_init[sc]
+
+    def _write_metadata(self, hdf5):
+        super()._write_metadata(hdf5)
+        self._write_attr(hdf5, 'interp_order', 'ext', 'check_input')
+
+    def _check_shapes(self):
+        """Check array shapes.
+
+        We check that ``t_interp`` is of shape (N,), and ``spacecraft_positions`` and
+        ``spacecraft_velocities`` (if not None) are of shape (N, 3, 3).
+
+        Raises:
+            ValueError: if the shapes are invalid.
+        """
+        if len(self.t_interp.shape) != 1:
+            raise ValueError(f"time array has shape {self.t_interp.shape}, must be (N).")
+
+        size = self.t_interp.shape[0]
+        if len(self.spacecraft_positions.shape) != 3 or \
+           self.spacecraft_positions.shape[0] != size or \
+           self.spacecraft_positions.shape[1] != 3 or \
+           self.spacecraft_positions.shape[2] != 3:
+            raise ValueError(
+                f"spacecraft position array has shape "
+                f"{self.spacecraft_positions.shape}, expected ({size}, 3, 3).")
+        if self.spacecraft_velocities is not None and (
+                len(self.spacecraft_velocities.shape) != 3 or \
+                self.spacecraft_velocities.shape[0] != size or \
+                self.spacecraft_velocities.shape[1] != 3 or \
+                self.spacecraft_velocities.shape[2] != 3
+            ):
+            raise ValueError(
+                f"spacecraft velocity array has shape "
+                f"{self.spacecraft_velocities.shape}, expected ({size}, 3, 3).")
+
+    @staticmethod
+    def _broadcast(t, sc):
+        """Broadcast t to have compatible shape with sc.
+
+        Add a second axis to t if necessary, and broadcast to sc's shape.
+
+        Args:
+            t ((N,) or (N, M) array-like): TCB times [s]
+            sc ((M,) array-like): spacecraft indices
+
+        Returns:
+            tuple: The broadcasted time array and length of second axis ``(t, n)``.
+        """
+        t = atleast_2d(t)
+        broad_t, _ = np.broadcast_arrays(t, sc)
+        return broad_t, broad_t.shape[1]
+
+    def compute_position(self, t, sc=SC):
+        t, n = self._broadcast(t, sc)
+        sc_x = np.stack([self.interp_x[sc[i]](t[:, i]) for i in range(n)], axis=-1) # (N, M)
+        sc_y = np.stack([self.interp_y[sc[i]](t[:, i]) for i in range(n)], axis=-1) # (N, M)
+        sc_z = np.stack([self.interp_z[sc[i]](t[:, i]) for i in range(n)], axis=-1) # (N, M)
+
+        return np.stack([sc_x, sc_y, sc_z], axis=-1) # (N, M, 3)
+
+    def compute_velocity(self, t, sc=SC):
+        t, n = self._broadcast(t, sc)
+        sc_vx = np.stack([self.interp_vx[sc[i]](t[:, i]) for i in range(n)], axis=-1) # (N, M)
+        sc_vy = np.stack([self.interp_vy[sc[i]](t[:, i]) for i in range(n)], axis=-1) # (N, M)
+        sc_vz = np.stack([self.interp_vz[sc[i]](t[:, i]) for i in range(n)], axis=-1) # (N, M)
+
+        return np.stack([sc_vx, sc_vy, sc_vz], axis=-1) # (N, M, 3)
+
+    def compute_acceleration(self, t, sc=SC):
+        t, n = self._broadcast(t, sc)
+        sc_ax = np.stack([self.interp_ax[sc[i]](t[:, i]) for i in range(n)], axis=-1) # (N, M)
+        sc_ay = np.stack([self.interp_ay[sc[i]](t[:, i]) for i in range(n)], axis=-1) # (N, M)
+        sc_az = np.stack([self.interp_az[sc[i]](t[:, i]) for i in range(n)], axis=-1) # (N, M)
+
+        return np.stack([sc_ax, sc_ay, sc_az], axis=-1) # (N, M, 3)
+
+    def compute_tps_deviation(self, t, sc=SC):
+        t, n = self._broadcast(t, sc)
+        return np.stack([self.interp_tau[sc[i]](t[:, i]) for i in range(n)], axis=-1) # (N, M)
+
+    def compute_tps_deviation_derivative(self, t, sc=SC):
+        t, n = self._broadcast(t, sc)
+        return np.stack([self.interp_dtau[sc[i]](t[:, i]) for i in range(n)], axis=-1)  # (N, M)
+
+    def compute_ltt(self, t, link=LINKS):
+        """Compute light travel times (LTTs).
+
+        Light travel times are the differences between the TCB time of reception
+        of a photon at one spacecraft, and the TCB time of emission of the same photon
+        by another spacecraft.
+
+        The default implementation calls :meth:`lisaorbits.Orbits._compute_ltt_analytic`
+        or :meth:`lisaorbits.Orbits._compute_ltt_iterative` depending on the value
+        of :attr:`lisaorbits.Orbits.tt_method`.
+
+        Subclasses can override this method with custom implementations.
+
+        Args:
+            t ((N,) or (N, M) array-like): TCB times [s]
+            link ((M,) array-like): link indices
+
+        Returns:
+            (N, M) ndarray: Light travel times [s].
+
+        Raises:
+            ValueError: if the computation method is invalid
+        """
+        if self.interp_ltt is not None:
+            t, n = self._broadcast(t, link)
+            return np.stack([self.interp_ltt[link[i]](t[:, i]) for i in range(n)], axis=-1) # (N, M)
+        if self.tt_method == 'analytic':
+            return self._compute_ltt_analytic(t, link) # (N, M)
+        if self.tt_method == 'iterative':
+            return self._compute_ltt_iterative(t, link) # (N, M)
+        raise ValueError(f"Invalid light travel time computation method '{self.tt_method}', "
+                         "must be 'analytic' or 'iterative'.")
 
 
 def relative_errors_sky(a, b):
