@@ -396,7 +396,7 @@ def compute_strain2x(frequencies, betas, lambs, ltts, positions, orbits, A, E, T
     strain2link.shape
 
     # Define eta variables for the links
-    eta_list = [f"eta_{mosa}" for mosa in orbits.LINKS]
+    eta_list = [f"eta_{mosa}" for mosa in LINKS]
 
     # Construct the mixing matrix from pytdi
     link2x = construct_mixing_from_pytdi(frequencies, eta_list, [A, E, T], ltts)

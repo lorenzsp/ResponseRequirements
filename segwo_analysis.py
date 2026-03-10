@@ -6,7 +6,7 @@ from lisaorbits import StaticConstellation, ResampledOrbits
 
 from lisaconstants import c
 from pytdi.michelson import X2_ETA, Y2_ETA, Z2_ETA
-from segwo_utils import *
+from segwo_utils import InterpolatedOrbits, compute_strain2x, plot_response, plot_strain_errors, plot_gw_response_maps, compute_violation_ratios, relative_errors_sky, absolute_errors
 import os
 from perturbation_utils import get_static_variation, create_orbit_with_periodic_dev, plot_orbit_3d
 import sys

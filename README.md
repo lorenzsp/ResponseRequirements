@@ -7,6 +7,7 @@ This repository contains codes for studying the impact of spacecraft orbital unc
 ## Installation
 Follow these steps to set up the project on your local machine:
 
+
 1. **Clone the repository**:
     ```bash
     git clone https://github.com/lorenzsp/ResponseRequirements.git
@@ -18,21 +19,24 @@ Follow these steps to set up the project on your local machine:
     ```bash
     conda create -n lisa_resp -c conda-forge gcc_linux-64 gxx_linux-64 numpy Cython scipy jupyter ipython h5py matplotlib python=3.12
     conda activate lisa_resp
+    pip install lisaorbits healpy pytdi segwo tqdm
     ```
+
+    You can also install for plotting `conda install -c conda-forge texlive-core`.
     
     If you want to install on GPUs, add the location to the CUDA compiler `nvcc` and install cupy:
     ```bash
     export PATH=$PATH:/usr/local/cuda-12.5/
     pip install cupy-cuda12x
     ```
-    
+
+3. **For GPU accelerated response**:
     Then run:
     ```bash
     git clone https://github.com/mikekatz04/lisa-on-gpu.git
     cd lisa-on-gpu
     python scripts/prebuild.py
     pip install .
-    pip install lisaorbits healpy
     git clone https://github.com/mikekatz04/LISAanalysistools.git
     cd LISAanalysistools/
     pip install .
