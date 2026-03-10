@@ -1,17 +1,22 @@
 import numpy as np
-import matplotlib.pyplot as plt
-plt.rcParams['text.usetex'] = False
-import healpy as hp
 from lisaorbits.utils import dot, norm, receiver, emitter, arrayindex, atleast_2d
 
 from lisaorbits import StaticConstellation, Orbits
 from lisaconstants import SUN_SCHWARZSCHILD_RADIUS, c
-from pytdi.michelson import X2_ETA, Y2_ETA, Z2_ETA
 from segwo.response import compute_strain2link
 from segwo.cov import construct_mixing_from_pytdi, compose_mixings
 import scipy.interpolate
 from lisaconstants.indexing import LINKS
 from lisaconstants.indexing import SPACECRAFT as SC
+
+# Plotting functions live in plot_utils; re-exported here for backward compatibility.
+from plot_utils import (  # noqa: F401
+    plot_response,
+    plot_strain_errors,
+    plot_gw_response_maps,
+    plot_ltt_residuals_histogram,
+    plot_position_residuals_histogram,
+)
 
 class InterpolatedOrbits(Orbits):
     """Interpolate an array of spacecraft positions.
@@ -408,145 +413,14 @@ def compute_strain2x(frequencies, betas, lambs, ltts, positions, orbits, A, E, T
 
 
 
-def plot_response(f, npix, strain2x_abs, pols = ['h+', 'hx'], folder="", output_file="strain2x.png", metric="min"):
-    """
-    Plots the relative errors in |R| and angle for strain2x and saves the figure.
-
-    Parameters:
-        f (array): Frequency array.
-        npix (int): Number of pixels in the sky map.
-        strain2x_abs (array): Absolute value of strain2x array.
-        pols (list): List of polarization labels.
-        output_file (str): File name to save the plot.
-        metric (str): Metric to use for error calculation ("max", "mean").
-    """
-    if metric == "max":
-        metric_func = np.max
-    elif metric == "mean":
-        metric_func = np.mean
-    elif metric == "min":
-        metric_func = np.min
-    else:
-        raise ValueError("Invalid metric. Use 'max', 'mean', or 'min'.")
-
-    fig, axs = plt.subplots(1, 1)
-
-    # Plot relative error in |R|
-    for i in range(3):
-        for j in range(2):
-            axs.loglog(f, metric_func(strain2x_abs[:, :, i, j], axis=1), label=f'{metric_func.__name__} TDI {"AET"[i]}, {pols[j]}')
-    axs.set_ylim(1e-15, 100)
-    axs.set_xlabel("Frequency [Hz]")
-    axs.set_ylabel("Amplitude")
-    axs.legend()
-
-    plt.tight_layout()
-    plt.savefig(folder + output_file, dpi=300)
-    plt.close()
-    
-    
-    for link in range(3):
-        for pol in range(2):
-            plt.figure()
-            gw_response_map = np.zeros(npix)
-
-            # Populate the map with the GW response for each pixel
-            for pix in range(npix):
-                max_sky = metric_func(strain2x_abs[:, pix, link, pol], axis=0)
-                gw_response_map[pix] = max_sky
-
-            # Plotting the map
-            hp.mollview(
-                gw_response_map,
-                title=f"Gravitational Wave Response Sky Map for {pols[pol]}, TDI {'AET'[link]}",
-                rot=[0, 0]
-            )
-            hp.graticule()
-            plt.savefig(folder + f"gw_response_map_{pols[pol]}_link{link}.png", dpi=300)
-            plt.close()
+# plot_response is re-exported from plot_utils (see import block at top of file).
 
 
 
-def plot_strain_errors(f, strain2x_abs_error, strain2x_angle_error, pols = ['h+', 'hx'], output_file="strain2x_errors.png", metric="max"):
-    """
-    Plots the relative errors in |R| and angle for strain2x and saves the figure.
-
-    Parameters:
-        f (array): Frequency array.
-        strain2x_abs_error (array): Relative error in |R| array.
-        strain2x_angle_error (array): Relative error in angle array.
-        pols (list): List of polarization labels.
-        output_file (str): File name to save the plot.
-        metric (str): Metric to use for error calculation ("max", "mean").
-    """
-    if metric == "max":
-        metric_func = np.max
-    elif metric == "mean":
-        metric_func = np.mean
-    else:
-        raise ValueError("Invalid metric. Use 'max' or 'mean'.")
-    
-    fig, axs = plt.subplots(2, 1)
-
-    # Plot relative error in |R|
-    for i in range(3):
-        for j in range(2):
-            axs[0].loglog(f, metric_func(strain2x_abs_error[:, :, i, j], axis=1), label=f'{metric_func.__name__} TDI {"AET"[i]}, {pols[j]}')
-    axs[0].set_xlabel("Frequency [Hz]")
-    axs[0].set_ylabel("Relative error in Amplitude")
-    axs[0].legend()
-
-    # Plot relative error in angle
-    for i in range(3):
-        for j in range(2):
-            axs[1].loglog(f, metric_func(strain2x_angle_error[:, :, i, j], axis=1), label=f'{metric_func.__name__} TDI {"AET"[i]}, {pols[j]}')
-    axs[1].set_xlabel("Frequency [Hz]")
-    axs[1].set_ylabel("Absolute error in Phase")
-    axs[1].legend()
-
-    plt.tight_layout()
-    plt.savefig(output_file, dpi=300)
-    plt.close()
+# plot_strain_errors is re-exported from plot_utils (see import block at top of file).
 
 
-def plot_gw_response_maps(strain2x_abs_error, f, npix, pols=['h+', 'hx'], folder="", metric="max"):
-    """
-    Plots gravitational wave response sky maps for each polarization and TDI link.
-
-    Parameters:
-        strain2x_abs_error (array): Relative error in |R| array.
-        f (array): Frequency array.
-        npix (int): Number of pixels in the sky map.
-        pols (list): List of polarization labels.
-        f_eval (int): Index of the frequency to evaluate.
-        metric (str): Metric to use for error calculation ("max", "mean").
-    """
-    if metric == "max":
-        metric_func = np.max
-    elif metric == "mean":
-        metric_func = np.mean
-    else:
-        raise ValueError("Invalid metric. Use 'max' or 'mean'.")
-    
-    for link in range(3):
-        for pol in range(2):
-            plt.figure()
-            gw_response_map = np.zeros(npix)
-
-            # Populate the map with the GW response for each pixel
-            for pix in range(npix):
-                max_sky = metric_func(strain2x_abs_error[:, pix, link, pol], axis=0)
-                gw_response_map[pix] = max_sky
-
-            # Plotting the map
-            hp.mollview(
-                gw_response_map,
-                title=f"Gravitational Wave Response Sky Map for {pols[pol]}, TDI {'AET'[link]}",
-                rot=[0, 0]
-            )
-            hp.graticule()
-            plt.savefig(folder + f"gw_response_map_{pols[pol]}_link{link}.png", dpi=300)
-            plt.close()
+# plot_gw_response_maps is re-exported from plot_utils (see import block at top of file).
 
 def compute_violation_ratios(strain2x_abs_error, strain2x_angle_error, amp_req=1e-4, phase_req=1e-3):
     """
