@@ -182,7 +182,7 @@ def plot_gw_response_maps(strain2x_error, f, npix, pols=('h+', 'hx'),
             plt.close()
 
 
-def plot_ltt_residuals_histogram(ltt_residuals, output_file):
+def plot_ltt_residuals_histogram(ltt_residuals, output_file, figsize=(3.5, 3)):
     """Histogram of light-travel-time residuals for the first 3 links.
 
     Parameters
@@ -191,16 +191,18 @@ def plot_ltt_residuals_histogram(ltt_residuals, output_file):
         LTT residuals for N realisations and 6 links [s].
     output_file : str
         Full output path.
+    figsize : tuple
+        Figure size in inches.
     """
     linestyle = ['-', '--', '-.']
-    plt.figure(figsize=(3.25, 2))
+    plt.figure(figsize=figsize)
     for i in range(3):
         plt.hist(ltt_residuals[:, i], bins=20, alpha=0.5,
-                 label=f"Link {LINKS[i]}", density=False,
+                 label=rf"$ij=${LINKS[i]}", density=False,
                  histtype='step', linestyle=linestyle[i], linewidth=2.5)
-    plt.xlabel("Light travel time residuals [s]")
+    plt.xlabel(r"$\Delta L_{ij}$ [s]")
     plt.ylabel("Counts")
-    plt.legend()
+    plt.legend(loc='upper left')
     plt.tight_layout()
     outdir = os.path.dirname(output_file)
     if outdir:
@@ -209,7 +211,7 @@ def plot_ltt_residuals_histogram(ltt_residuals, output_file):
     plt.close()
 
 
-def plot_position_residuals_histogram(position_residuals, output_file):
+def plot_position_residuals_histogram(position_residuals, output_file, figsize=(3.5, 3)):
     """Histogram of spacecraft position residuals (SC1 components) in km.
 
     Parameters
@@ -218,19 +220,21 @@ def plot_position_residuals_histogram(position_residuals, output_file):
         Position residuals for N realisations, 3 spacecraft, 3 coordinates [m].
     output_file : str
         Full output path.
+    figsize : tuple
+        Figure size in inches.
     """
     linestyle = ['-', '--', '-.']
-    plt.figure(figsize=(3.25, 2))
+    plt.figure(figsize=figsize)
     plt.hist(position_residuals[:, 0, 0] / 1e3, bins=20, alpha=0.5,
-             label="x component", density=False,
+             label="$x$", density=False,
              histtype='step', linestyle=linestyle[0], linewidth=2.5)
     plt.hist(position_residuals[:, 0, 1] / 1e3, bins=20, alpha=0.5,
-             label="y component", density=False,
+             label="$y$", density=False,
              histtype='step', linestyle=linestyle[1], linewidth=2.5)
     plt.hist(position_residuals[:, 0, 2] / 1e3, bins=20, alpha=0.5,
-             label="z component", density=False,
+             label="$z$", density=False,
              histtype='step', linestyle=linestyle[2], linewidth=2.5)
-    plt.xlabel("Position residuals [km]")
+    plt.xlabel(r"Position $\Delta x$ [km]")
     plt.ylabel("Counts")
     plt.legend()
     plt.tight_layout()
