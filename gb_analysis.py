@@ -77,21 +77,59 @@ perturbed_orbits = InterpolatedOrbits(
             )
 
 jaxgb_nom = JaxGB(orbits=orbits, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
-jaxgb_perturb  = JaxGB(orbits=orbits, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
+jaxgb_perturb  = JaxGB(orbits=perturbed_orbits, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
 
 print(f"JaxGB initialized with n={N_FREQ_BINS} frequency bins")
 
 # ==================== GB signal ====================
+mismatch = []
+f0_vec = np.logspace(-4,0.0, num=20)
 
-# Source 1:
-source_params = np.array([
-    3.995e-3,                          # f0 (Hz)
-    1e-15,                           # fdot (Hz/s) - no evolution
-    1e-22,                         # amplitude (strain)
-    0.5,                           # ecliptic latitude (rad)
-    2.0,                           # ecliptic longitude (rad)
-    1.2,                           # polarization (rad)
-    0.8,                           # inclination (rad)
-    0.3,                           # initial phase (rad)
-], dtype=float)
+for ff in f0_vec:
+    print(f"Processing f0 = {ff:.2e} Hz")
+    # Source 1:
+    source_params = np.array([
+        ff,                          # f0 (Hz)
+        1e-15,                           # fdot (Hz/s) - no evolution
+        1e-22,                         # amplitude (strain)
+        0.5,                           # ecliptic latitude (rad)
+        2.0,                           # ecliptic longitude (rad)
+        1.2,                           # polarization (rad)
+        0.8,                           # inclination (rad)
+        0.3,                           # initial phase (rad)
+    ], dtype=float)
 
+    A_nom, E1_nom, T1_nom = jaxgb_nom.get_tdi(jnp.array(source_params),tdi_generation=2.0,tdi_combination="AET")
+    A_perturb, E1_perturb, T1_perturb = jaxgb_perturb.get_tdi(jnp.array(source_params),tdi_generation=2.0,tdi_combination="AET")
+    kmin = int(np.array(jaxgb_nom.get_kmin(source_params[0],source_params[1])))
+
+    df = 1.0 / TMAX
+    freqs = df * (np.arange(N_FREQ_BINS) + kmin)
+    cov_AET = compute_covariance(freqs, ltts_median).mean(axis=0)
+    
+    d_nom = np.stack([A_nom, E1_nom, T1_nom], axis=0)
+    d_perturb = np.stack([A_perturb, E1_perturb, T1_perturb], axis=0)
+    C_m_1 = np.linalg.solve(cov_AET, (d_nom.T)[..., None])[...,0]
+    nom_pert = 4 * np.sum(d_perturb.conj().T * C_m_1).real * df
+    nom_nom = 4 * np.sum(d_nom.conj().T * C_m_1).real * df
+    pert_pert = 4 * np.sum(d_perturb.conj().T * np.linalg.solve(cov_AET, (d_perturb.T)[..., None])[...,0]).real * df
+    mismatch.append(1 - nom_pert / (nom_nom * pert_pert)**0.5)
+
+breakpoint()
+plt.figure(figsize=(3.25, 2.44))
+plt.plot(f0_vec, mismatch, '-o')
+plt.loglog()
+plt.xlabel('$f_0$')
+plt.ylabel('Mismatch')
+plt.tight_layout()
+plt.savefig("gb_mismatch_vs_frequency.png", dpi=300)
+plt.show()
+
+# plt.figure(figsize=(10, 4))
+# plt.semilogy(freqs, np.abs(A_nom)/np.abs(A_perturb), label='my sum')
+# # plt.plot(freqs, np.abs(A_perturb), '--', label='sum_tdi')
+# plt.title('Individual Source A Channel Magnitudes')
+# plt.xlabel('Frequency Bin')
+# plt.ylabel('Magnitude')
+# plt.legend()
+# plt.show()
