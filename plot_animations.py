@@ -1,13 +1,14 @@
 """
-Plot script: loads results produced by run_evolution.py and generates all
-time-evolution figures and animations.
+Generate animations of the nominal response evolution.
 
-No heavy computation is performed here.
+Loads results produced by run_evolution.py and generates:
+  - spectrum_evolution.gif   (frequency-spectrum sweep over time)
+  - sky_evolution.gif        (HEALPix sky-map sweep over time)
 
 Usage
 -----
-    python plot_evolution.py [--data_file segwo_results/evolution_data.h5]
-                             [--output_dir .]
+    python plot_animations.py [--data_file segwo_results/evolution_data.h5]
+                              [--output_dir .]
 """
 
 import argparse
@@ -25,12 +26,13 @@ plt.rcParams['text.usetex'] = False
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-parser = argparse.ArgumentParser(description="SEGWO Evolution — Plot Only")
+parser = argparse.ArgumentParser(
+    description="Generate response-evolution animations")
 parser.add_argument('--data_file', type=str,
                     default="segwo_results/evolution_data.h5",
                     help="HDF5 file produced by run_evolution.py.")
 parser.add_argument('--output_dir', type=str, default=".",
-                    help="Directory where plots and animations are saved.")
+                    help="Directory where animations are saved.")
 args = parser.parse_args()
 
 hdf5_path  = args.data_file
@@ -54,55 +56,19 @@ with h5py.File(hdf5_path, "r") as hf:
     npix        = int(hf.attrs["npix"])
     nside       = int(hf.attrs["nside"])
 
-    strain2x_nominal = (hf["nominal/strain2x_real"][()] +
-                        1j * hf["nominal/strain2x_imag"][()])
+    strain2x_nominal = (hf["nominal/strain2x_real"][()]
+                        + 1j * hf["nominal/strain2x_imag"][()])
 
 print(f"  strain2x_nominal shape : {strain2x_nominal.shape}")
 print(f"  frequencies            : {len(f)}")
 print(f"  time points            : {len(array_ltts)}")
 
-# We plot the nominal (median) orbit response
 to_plot = strain2x_nominal
 
-# Fixed indices for single-pixel / channel / pol inspection
+# Fixed indices
 channel   = 0
 pol       = 0
 sky_index = 10
-
-# Extra frequencies used in the time-evolution panel
-vec_f       = [1e-3, 5e-3, 1e-2, 5e-2]
-color_list  = plt.cm.viridis(np.linspace(0, 1, len(vec_f)))
-
-# ---------------------------------------------------------------------------
-# Figure 1: Normalized amplitude and cosine-phase evolution
-# ---------------------------------------------------------------------------
-print("Generating response_evolution.png …")
-fig, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
-
-ax_amp, ax_phase = axes
-ax_amp.set_title(
-    f"Response evolution — sky pixel {sky_index}, "
-    f"channel {'AET'[channel]}, pol {pol}"
-)
-
-for freq_, color in zip(vec_f, color_list):
-    fidx = np.argmin(np.abs(f - freq_))        # exact: freq_ is in f by construction
-    amp  = np.abs(to_plot[:, fidx, sky_index, channel, pol])
-    ax_amp.semilogy(array_ltts / 86400, amp / amp[0],
-                    label=f"{freq_:.2e} Hz", color=color)
-    ax_phase.plot(array_ltts / 86400,
-                  np.cos(np.angle(to_plot[:, fidx, sky_index, channel, pol])),
-                  label=f"{freq_:.2e} Hz", color=color)
-
-ax_amp.set_ylabel("Normalized Amplitude")
-ax_amp.legend(fontsize=8)
-ax_phase.set_xlabel("Time [days]")
-ax_phase.set_ylabel("cos(Phase)")
-ax_phase.legend(fontsize=8)
-plt.tight_layout()
-plt.savefig(os.path.join(output_dir, "response_evolution.png"), dpi=300)
-plt.close()
-print("  Saved response_evolution.png")
 
 # ---------------------------------------------------------------------------
 # Animation 1: Frequency-spectrum evolution (fixed sky pixel)
@@ -167,4 +133,4 @@ ani2.save(os.path.join(output_dir, "sky_evolution.gif"),
 plt.close(fig2)
 print("  Saved sky_evolution.gif")
 
-print(f"\nAll evolution plots saved to {output_dir}")
+print(f"\nAll animations saved to {output_dir}")

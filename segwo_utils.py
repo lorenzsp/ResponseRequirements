@@ -3,8 +3,8 @@ from lisaorbits.utils import dot, norm, receiver, emitter, arrayindex, atleast_2
 
 from lisaorbits import StaticConstellation, Orbits
 from lisaconstants import SUN_SCHWARZSCHILD_RADIUS, c
-from segwo.response import compute_strain2link
-from segwo.cov import construct_mixing_from_pytdi, compose_mixings
+from segwo.response import compute_strain2link, project_covariance
+from segwo.cov import construct_mixing_from_pytdi, compose_mixings, construct_covariance_from_psds, project_covariance
 import scipy.interpolate
 from lisaconstants.indexing import LINKS
 from lisaconstants.indexing import SPACECRAFT as SC
@@ -17,6 +17,71 @@ from plot_utils import (  # noqa: F401
     plot_ltt_residuals_histogram,
     plot_position_residuals_histogram,
 )
+
+from pytdi.core import LISATDICombination
+from pytdi.michelson import X2_ETA, Y2_ETA, Z2_ETA
+
+X2_ETA: LISATDICombination
+Y2_ETA: LISATDICombination
+Z2_ETA: LISATDICombination
+
+# Define a dictionary of TDI combinations mapping our noises into each of the 6
+# single links (aka, the 6 eta variables)
+ETA_COMBS: dict[int, LISATDICombination] = {}
+
+# We start by defining it for eta 12:
+#
+# A PyTDI combination is defined as a dictionary, where the keys are the names
+# of the input variables (N_tm_12, N_oms_12, etc.), and the values are lists of
+# tuples. Each tuple contains a scaling coefficient and a list of delays to be
+# applied on the corresponding variable.
+ETA_COMBS[12] = LISATDICombination(
+    {
+        "N_tm_21": [(1, ["D_12"])],
+        "N_tm_12": [(1, [])],
+        "N_oms_12": [(1, [])],
+    }
+)
+
+# Use PyTDI symmetry operations to define the other links
+
+# We can do cyclic permuations, rotating indices 1->2->3->1
+ETA_COMBS[23] = ETA_COMBS[12].rotated()
+ETA_COMBS[31] = ETA_COMBS[23].rotated()
+
+# We can do reflections along the axis going through the respective spacecraft,
+# ie., exchanging indices 2<->3, 3<->1, and 1<->2
+ETA_COMBS[13] = ETA_COMBS[12].reflected(1)
+ETA_COMBS[21] = ETA_COMBS[23].reflected(2)
+ETA_COMBS[32] = ETA_COMBS[31].reflected(3)
+
+# Define a dictionary containing the TDI combinations mapping the noises into
+# the eta variables, making sure that the keys map the measurement labels used
+# in `X2_ETA`, `Y2_ETA`, and `Z2_ETA` (to allow composing them)
+ETA_COMBS_SET = {f"eta_{mosa}": ETA_COMBS[mosa] for mosa in LINKS}
+
+# Define list of noise labels (our input variables)
+noise_list = [f"N_oms_{mosa}" for mosa in LINKS] + [f"N_tm_{mosa}" for mosa in LINKS]
+
+# Define TDI combinations transforming XYZ into AET
+A = (Z2_ETA - X2_ETA) / np.sqrt(2)
+E = (X2_ETA - 2 * Y2_ETA + Z2_ETA) / np.sqrt(6)
+T = (X2_ETA + Y2_ETA + Z2_ETA) / np.sqrt(3)
+# ---------------------------------------------------------------------------
+# TDI combinations
+# ---------------------------------------------------------------------------
+# Form the dictionary mapping the TDI combinations into the eta variables
+xyz_eta_dict = {"X": X2_ETA, "Y": Y2_ETA, "Z": Z2_ETA}
+
+# Compute and simplify the AET combinations for single links
+A_ETA = (A @ xyz_eta_dict).simplified()
+E_ETA = (E @ xyz_eta_dict).simplified()
+T_ETA = (T @ xyz_eta_dict).simplified()
+
+# Compute and simplify the AET combinations for noises
+A_NOISE = (A_ETA @ ETA_COMBS_SET).simplified()
+E_NOISE = (E_ETA @ ETA_COMBS_SET).simplified()
+T_NOISE = (T_ETA @ ETA_COMBS_SET).simplified()
 
 class InterpolatedOrbits(Orbits):
     """Interpolate an array of spacecraft positions.
@@ -107,6 +172,7 @@ class InterpolatedOrbits(Orbits):
         if ltts is not None:
             print("Interpolating light travel times (ltts). Make sure that ltts are in the same order as LINKS:", LINKS)
             self.interp_ltt = {link: interpolate(ltts[:, ind]) for ind,link in enumerate(LINKS)}
+            self.interp_ltt_deriv = {link: interpolate(ltts[:, ind]).derivative() for ind,link in enumerate(LINKS)}
         else:
             self.interp_ltt = None
         
@@ -254,7 +320,8 @@ def relative_errors_sky(a, b):
     """ Compute the relative errors between two arrays, 
         wrt. the direction of maximum amplitude
     """
-    return np.abs(a - b) / np.abs(b) # np.average(np.abs(b), axis=(1,2))[:, np.newaxis, np.newaxis, :, :]
+    # sky_average=np.average(np.abs(b), axis=(2))[:, :, np.newaxis, :, :]
+    return np.abs(a - b) / b
 
 def absolute_errors(a, b):
     """ Compute the relative errors between two arrays
@@ -363,7 +430,45 @@ def generate_realizations(arm_lengths, armlength_error, rotation_error, translat
     return perturbed_ltt, perturbed_positions
 
 
-def compute_strain2x(frequencies, betas, lambs, ltts, positions, orbits, A, E, T):
+def compute_covariance(f, ltts):
+    """
+    Compute the noise covariance in the TDI variables for given frequencies and mixing matrix.
+    Parameters
+    ----------
+    f : np.array
+        Array of frequency values.
+    ltts : np.array
+        Light travel times for the constellation.
+    Returns
+    -------
+    noise_cov_tdi_pytdi : np.array
+        The noise covariance in the TDI variables, projected using the provided mixing matrix.
+    """
+    
+
+    # The OMS noise is defined in terms of displacement (meters), which we convert
+    # to fractional frequency shifts
+    displ_2_ffd = 2 * np.pi * f / c
+    oms = (15e-12) ** 2 * displ_2_ffd**2 * (1 + ((2e-3) / f) ** 4)
+
+    # The TM noise is defined in terms of acceleration (m/s^2), which we convert to
+    # fractional frequency shifts
+    acc_2_ffd = 1 / (2 * np.pi * f * c)
+    tm = (3e-15) ** 2 * acc_2_ffd**2 * (1 + (0.4e-3 / f) ** 2) * (1 + (f / 8e-3) ** 4)
+    
+    # Construct the overall noise covariance
+    noise_cov = construct_covariance_from_psds([oms] * 6 + [tm] * 6)
+
+    # Construct the mixing matrix for the noise covariance
+    # Compute the corresponding mixing matrix
+    noise2aet = construct_mixing_from_pytdi(f, noise_list, [A_NOISE, E_NOISE, T_NOISE], ltts)
+    
+    noise_cov_tdi_pytdi = project_covariance(noise_cov, noise2aet)
+
+    return noise_cov_tdi_pytdi
+
+
+def compute_strain2x(frequencies, betas, lambs, ltts, positions):
     """
     Compute the strain2x matrix for given frequencies, sky locations, and orbits.
 
@@ -412,15 +517,6 @@ def compute_strain2x(frequencies, betas, lambs, ltts, positions, orbits, A, E, T
     return strain2x
 
 
-
-# plot_response is re-exported from plot_utils (see import block at top of file).
-
-
-
-# plot_strain_errors is re-exported from plot_utils (see import block at top of file).
-
-
-# plot_gw_response_maps is re-exported from plot_utils (see import block at top of file).
 
 def compute_violation_ratios(strain2x_abs_error, strain2x_angle_error, amp_req=1e-4, phase_req=1e-3):
     """
@@ -483,4 +579,72 @@ if __name__ == "__main__":
         print(f"Position std for sc {i}:", np.std(position_residuals[:,i]), "meters")
 
     print("should be consistent with", 50e3 * np.sqrt(2))
+
+
+def get_static_variation(arm_lengths, armlength_error, rotation_error, translation_error, rot_fac = 2.127):
+    """ Apply perturbations to the static orbits 
+    
+    We want to create a situation where the armlengths are known very well, but the
+    absolute positions of the spacecraft are not known very well.
+
+    This is achieved by applying a small perturbation to the armlengths
+    followed by a rotation and translation to the spacecraft 
+    positions (around random axis and directions).
+    
+    Parameters
+    ----------
+    arm_lengths : np.array
+        Nominal armlengths of the constellation.
+    armlength_error : float
+        Standard deviation of the perturbation to apply to the armlengths, in meters.
+    rotation_error : float
+        Standard deviation of the rotation to apply to the spacecraft positions, in equivalent meters of displacement.
+    translation_error : float
+        Standard deviation of the translation to apply to the spacecraft positions, in meters.
+
+    """
+    # Create new orbits with perturbed armlengths
+    arm_dev = np.random.normal(0, armlength_error, size=(3,))
+    # print("arm_dev", arm_dev)
+    perturbed_ltt_orbits = StaticConstellation.from_armlengths(arm_lengths[0] + arm_dev[0], 
+                                                       arm_lengths[1] + arm_dev[1], 
+                                                       arm_lengths[2] + arm_dev[2])
+    
+    # Apply rotation by an angle phi along a random axis in 3d space
+
+    # Generate a random rotation matrix
+    # Random axis of rotation
+    axis = np.random.randn(3)
+    axis /= np.linalg.norm(axis)  # Normalize the axis
+
+    # Average distance of the spacecraft from the center of mass
+    avg_distance = np.mean(np.linalg.norm(perturbed_ltt_orbits.sc_positions, axis=1))
+
+    # In the small angle approximation, the rotation by an angle phi causes a displacement
+    # of the spacecraft positions by a distance d = r * phi. Solving for phi and using d = error_magnitude gives
+    # phi = d / r
+    # TODO: improve on the math here; not all rotations affect all S/C, so this is
+    # off by a factor of 2 or so; for now just fitted by hand
+    # angle = rot_fac * rotation_error / avg_distance
+    angle_std = rot_fac * rotation_error / avg_distance
+
+    angle = np.random.normal(0, angle_std)
+
+    # Rotation matrix using Rodrigues' rotation formula
+    K = np.array([[0, -axis[2], axis[1]],
+                [axis[2], 0, -axis[0]],
+                [-axis[1], axis[0], 0]])
+    R = np.eye(3) + np.sin(angle) * K + (1 - np.cos(angle)) * K @ K
+
+    # Apply the rotation to the spacecraft positions
+    rotated_positions = np.dot(R, perturbed_ltt_orbits.sc_positions.T).T
+
+    # Apply translation to the spacecraft positions
+    translation = np.random.normal(0, translation_error, size=(3,))
+    perturbed_positions = rotated_positions + translation
+    # print("translation", translation)
+    # print("rotation", angle)
+    # Create a new StaticConstellation object with the perturbed positions
+    perturbed_orbits = StaticConstellation(perturbed_positions[0], perturbed_positions[1], perturbed_positions[2])
+    return perturbed_orbits
 

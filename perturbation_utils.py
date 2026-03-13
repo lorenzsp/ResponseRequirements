@@ -2,7 +2,7 @@ import numpy as np
 from scipy.signal import sawtooth
 from orbits_utils import ESAOrbits, EqualArmlengthOrbits
 from lisaorbits import StaticConstellation
-from lisatools.utils.constants import *
+# from lisatools.utils.constants import *
 from matplotlib import pyplot as plt
 from scipy.interpolate import CubicSpline
 

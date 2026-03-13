@@ -11,6 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 plt.rcParams['text.usetex'] = False
 import healpy as hp
+from matplotlib.colors import LogNorm
 
 from lisaconstants.indexing import LINKS
 
@@ -180,6 +181,28 @@ def plot_gw_response_maps(strain2x_error, f, npix, pols=('h+', 'hx'),
                 if folder else f"gw_response_map_{pols[pol]}_link{link}.png"
             plt.savefig(out, dpi=300)
             plt.close()
+            
+            ##############################################
+            z = strain2x_error[:, :, link, pol]
+            vmin = np.max([1e-8,z.min()])
+            vmax = np.min([1.0,z.max()])
+            z[z<vmin] = vmin
+            z[z>vmax] = vmax
+            
+            dmin = np.floor(np.log10(vmin)) # down to lower decade
+            dmax = np.ceil(np.log10(vmax)) # up to upper decade
+            levels = np.logspace(dmin, dmax, num=int(dmax - dmin + 1))
+            plt.figure(figsize=(6, 4))
+            cf = plt.contourf(np.arange(z.shape[1]), f, z, levels=levels, norm=LogNorm(vmin=vmin, vmax=vmax),cmap="viridis")
+            plt.yscale("log")  # same as semilogy for axis scaling
+            cbar = plt.colorbar(cf)
+            cbar.set_label("max mismatch")
+            plt.xlabel("Sky pixel")
+            plt.ylabel("Frequency (Hz)")
+            out = os.path.join(folder, f"f_sky_response_{pols[pol]}_link{link}.png") \
+                if folder else f"gw_response_map_{pols[pol]}_link{link}.png"
+            plt.savefig(out, dpi=300)
+
 
 
 def plot_ltt_residuals_histogram(ltt_residuals, output_file, figsize=(3.5, 3)):
@@ -237,6 +260,43 @@ def plot_position_residuals_histogram(position_residuals, output_file, figsize=(
     plt.xlabel(r"Position $\Delta x$ [km]")
     plt.ylabel("Counts")
     plt.legend()
+    plt.tight_layout()
+    outdir = os.path.dirname(output_file)
+    if outdir:
+        os.makedirs(outdir, exist_ok=True)
+    plt.savefig(output_file, dpi=300)
+    plt.close()
+
+def plot_mismatch(f, npix, mismatch, output_file, figsize=(6, 4), pols=('h+', 'hx'), folder="", metric="max"):
+    if metric == "max":
+        metric_func = np.max
+    elif metric == "mean":
+        metric_func = np.mean
+    else:
+        raise ValueError("Invalid metric. Use 'max' or 'mean'.")
+
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    
+    # mismatch over sky max across frequencies and realizations
+    response_map = metric_func(mismatch,axis=(0,1))
+    for pol in range(2):
+        plt.figure()
+        hp.mollview(response_map,title=f"Mismatch",rot=[0, 0])
+        hp.graticule()
+        out = os.path.join(folder, f"mismatch_sky_map_{pols[pol]}.png") \
+            if folder else f"mismatch_sky_map_{pols[pol]}.png"
+        plt.savefig(out, dpi=300)
+        plt.close()
+    
+    frquency_map = metric_func(mismatch,axis=(0,2))
+    plt.figure()
+    for j in range(2):
+        plt.loglog(f, frquency_map, label=f'{pols[j]}')
+    plt.xlabel("Frequency [Hz]")
+    plt.ylabel("Mismatch")
+    plt.legend()
+
     plt.tight_layout()
     outdir = os.path.dirname(output_file)
     if outdir:

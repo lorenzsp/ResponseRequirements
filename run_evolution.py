@@ -34,13 +34,13 @@ T = (X2_ETA + Y2_ETA + Z2_ETA) / np.sqrt(3)
 # Configuration
 # ---------------------------------------------------------------------------
 # Base logspace grid
-f_base = np.logspace(-4, 0., 300)
+f_base = np.logspace(-4, 0., 100)
 # Extra frequencies used in the time-evolution plot (may not land on logspace grid)
-f_extra = np.array([1e-3, 5e-3, 1e-2, 5e-2])
+f_extra = np.array([1e-3, 5e-3, 1e-2, 5e-2, 1e-1])
 f = np.unique(np.sort(np.concatenate([f_base, f_extra])))
 
 # Time axis: 120 points over one month (~1/12 year)
-array_ltts = np.linspace(0, 365 * 86400 / 12, 120)
+array_ltts = np.linspace(0, 365 * 86400, 365)
 
 # HEALPix sky grid
 nside = 6

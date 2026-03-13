@@ -25,23 +25,16 @@ from lisaconstants import c
 from lisaconstants.indexing import LINKS
 from pytdi.michelson import X2_ETA, Y2_ETA, Z2_ETA
 
-from segwo_utils import (InterpolatedOrbits, compute_strain2x,
-                         relative_errors_sky, compute_violation_ratios)
-from perturbation_utils import get_static_variation, create_orbit_with_periodic_dev
+from segwo_utils import (InterpolatedOrbits, compute_strain2x, compute_covariance, compute_violation_ratios, get_static_variation)
 
 np.random.seed(2601)
 
-# ---------------------------------------------------------------------------
-# TDI combinations
-# ---------------------------------------------------------------------------
-A = (Z2_ETA - X2_ETA) / np.sqrt(2)
-E = (X2_ETA - 2 * Y2_ETA + Z2_ETA) / np.sqrt(6)
-T = (X2_ETA + Y2_ETA + Z2_ETA) / np.sqrt(3)
 
 # ---------------------------------------------------------------------------
 # Frequency grid
 # ---------------------------------------------------------------------------
-f = np.logspace(-4, 0., 100)
+f = np.logspace(-4, -2., 10)
+f = np.append(f, np.logspace(-2., 0., 150))
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -64,17 +57,6 @@ print(f"run_flag: {run_flag}  |  time_eval: {args.time_eval} days")
 if run_flag == 'static':
     N = 1000
     orbits = StaticConstellation.from_armlengths(2.5e9, 2.5e9, 2.5e9)
-
-if run_flag == 'periodic_dev':
-    N = 10
-    _orb = create_orbit_with_periodic_dev(fpath="new_orbits.h5", use_gpu=False,
-                                          armlength_error=0.0,
-                                          rotation_error=0.0,
-                                          translation_error=0.0,
-                                          period=15 * 86400,
-                                          equal_armlength=False)
-    t_orb, x_orb, v_orb = _orb.t, _orb.x, _orb.v
-    orbits = InterpolatedOrbits(t_orb, x_orb, v_orb, interp_order=3)
 
 if run_flag == 'evolving':
     with h5py.File("processed_trajectories.h5", "r") as ds:
@@ -105,8 +87,8 @@ print(f"Nominal ltts shape: {ltts.shape}  |  positions shape: {positions.shape}"
 # ---------------------------------------------------------------------------
 # HEALPix sky grid
 # ---------------------------------------------------------------------------
-nside = 6
-npix  = hp.nside2npix(nside)
+nside        = 6
+npix         = hp.nside2npix(nside)
 thetas, phis = hp.pix2ang(nside, np.arange(npix))
 betas, lambs = np.pi / 2 - thetas, phis
 
@@ -114,8 +96,10 @@ betas, lambs = np.pi / 2 - thetas, phis
 # Nominal strain-to-TDI matrix
 # ---------------------------------------------------------------------------
 print("Computing nominal strain2x …")
-strain2x_nominal = compute_strain2x(f, betas, lambs, ltts, positions, orbits, A, E, T)
+strain2x_nominal = compute_strain2x(f, betas, lambs, ltts, positions)
 print(f"strain2x_nominal shape: {strain2x_nominal.shape}")
+cov_AET = compute_covariance(f, ltts)[:,:,np.newaxis,:,:] # added an axis for sky pixels
+print(f"cov_AET shape: {cov_AET.shape}")
 
 # ---------------------------------------------------------------------------
 # Perturbation parameters (one case; extend the list to run multiple)
@@ -157,16 +141,6 @@ for output_dir, params in zip(output_dirs, perturbation_params):
                 translation_error=params["translation_error"],
             )
 
-        if run_flag == 'periodic_dev':
-            _po = create_orbit_with_periodic_dev(
-                fpath="new_orbits.h5", use_gpu=False,
-                armlength_error=params["armlength_error"],
-                rotation_error=params["rotation_error"],
-                translation_error=params["translation_error"],
-                period=15 * 86400, equal_armlength=False,
-            )
-            po = InterpolatedOrbits(_po.t, _po.x, _po.v, interp_order=3)
-
         if run_flag == 'evolving':
             po = InterpolatedOrbits(
                 t_orb_dataset,
@@ -189,32 +163,37 @@ for output_dir, params in zip(output_dirs, perturbation_params):
 
     # --- Compute perturbed strain2x and error metrics ---
     print("Computing perturbed strain2x …")
-    strain2x_perturbed = compute_strain2x(
-        f, betas, lambs, perturbed_ltt, perturbed_positions, orbits, A, E, T
-    )
+    strain2x_perturbed = compute_strain2x(f, betas, lambs, perturbed_ltt, perturbed_positions,)
+    
+    print(cov_AET.shape, strain2x_nominal.shape, strain2x_perturbed.shape)
+    # --- Compute Mismatch Metric ---
+    # a^T C^-1 b = a^T x where x is obtained from C x = b
+    pol = 0
+    mismatch = []
+    for pol in range(2):
+        # check shapes for np.linalg.solve
+        x = np.linalg.solve(cov_AET, strain2x_nominal[...,pol][...,np.newaxis])[...,0]
+        a_star = np.conj(strain2x_perturbed[...,pol])
 
-    thr = 1e-12
+        A_B = 4 * np.einsum("ijkl,ijkl->ijk", a_star, x).real
+        A_A = 4 * np.einsum("ijkl,ijkl->ijk", a_star, np.linalg.solve(cov_AET, strain2x_perturbed[...,pol][...,np.newaxis])[...,0]).real
+        B_B = 4 * np.einsum("ijkl,ijkl->ijk", strain2x_nominal[...,pol].conj(), x).real
+        mismatch.append(np.abs(1 - A_B / (B_B * A_A)**0.5))
+    mismatch = np.stack(mismatch,axis=-1)
 
-    rel_err_sky = relative_errors_sky(np.abs(strain2x_perturbed), np.abs(strain2x_nominal))
-    rel_err_sky[:, np.abs(strain2x_nominal[0]) < thr] = 0.0
-    rel_err_sky[np.abs(strain2x_perturbed) < thr] = 0.0
-
+    # --- Compute Relative Difference on Amplitude abd Phase Difference Metric ---
     denom = np.sqrt(
         np.abs(strain2x_perturbed * np.conj(strain2x_perturbed))
         * np.abs(strain2x_nominal * np.conj(strain2x_nominal))
     )
-    product = np.where(denom > thr,
-                       strain2x_nominal * np.conj(strain2x_perturbed) / denom,
-                       1.0 + 0j)
-    mism = np.abs(1 - product)
-    mism[:, np.abs(strain2x_nominal[0]) < thr] = 0.0
-    mism[np.abs(strain2x_perturbed) < thr] = 0.0
-
-    rel_err_sky = np.nan_to_num(rel_err_sky, nan=0.0, posinf=0.0)
-    mism        = np.nan_to_num(mism,        nan=0.0, posinf=0.0)
-
-    strain2x_abs_error   = np.max(rel_err_sky, axis=0)   # (F, P, 3, 2)
-    strain2x_angle_error = np.max(mism,        axis=0)   # (F, P, 3, 2)
+    mask = denom > 0.0
+    rel_amp = np.zeros_like(strain2x_perturbed, dtype=float)
+    phase_diff = np.zeros_like(strain2x_perturbed, dtype=float)
+    phase_diff[mask] += np.abs(1-np.real(strain2x_perturbed * np.conj(strain2x_nominal))[mask]/denom[mask])
+    rel_amp[mask] += np.abs(np.abs(strain2x_perturbed) - np.abs(strain2x_nominal))[mask] / np.sqrt(denom[mask])
+    
+    strain2x_abs_error   = np.max(rel_amp, axis=0)   # (F, P, 3, 2)
+    strain2x_angle_error = np.max(phase_diff,        axis=0)   # (F, P, 3, 2)
 
     amp_violation_ratio, phase_violation_ratio = compute_violation_ratios(
         strain2x_abs_error, strain2x_angle_error,
@@ -222,7 +201,7 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     )
     print(f"  Amplitude violation ratio : {amp_violation_ratio:.4f}")
     print(f"  Phase    violation ratio  : {phase_violation_ratio:.4f}")
-
+    
     # --- Save to HDF5 ---
     hdf5_path = os.path.join(output_dir, "results.h5")
     print(f"Saving results to {hdf5_path} …")
@@ -259,6 +238,7 @@ for output_dir, params in zip(output_dirs, perturbation_params):
         err = hf.create_group("errors")
         err.create_dataset("strain2x_abs_error",   data=strain2x_abs_error)
         err.create_dataset("strain2x_angle_error", data=strain2x_angle_error)
+        err.create_dataset("mismatch", data=mismatch)
         err.attrs["amp_violation_ratio"]   = amp_violation_ratio
         err.attrs["phase_violation_ratio"] = phase_violation_ratio
 

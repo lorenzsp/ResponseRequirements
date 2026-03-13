@@ -61,15 +61,11 @@ with h5py.File(hdf5_path, "r") as hf:
 
     strain2x_abs_error   = hf["errors/strain2x_abs_error"][()]
     strain2x_angle_error = hf["errors/strain2x_angle_error"][()]
+    mismatch             = hf["errors/mismatch"][()]
     amp_violation_ratio   = float(hf["errors"].attrs["amp_violation_ratio"])
     phase_violation_ratio = float(hf["errors"].attrs["phase_violation_ratio"])
 
 print(f"  run_flag                 : {run_flag}")
-print(f"  Amplitude violation ratio: {amp_violation_ratio:.4f}")
-print(f"  Phase    violation ratio : {phase_violation_ratio:.4f}")
-print(f"  strain2x shape           : {strain2x_nominal.shape}")
-print(f"  abs error shape          : {strain2x_abs_error.shape}")
-
 # ---------------------------------------------------------------------------
 # Figures
 # ---------------------------------------------------------------------------
@@ -97,6 +93,8 @@ plot_position_residuals_histogram(
 # 3. Frequency-domain error plots + sky maps
 for metric in ("mean", "max"):
     print(f"Plotting strain errors [{metric}] …")
+    
+    # standard metric
     plot_strain_errors(
         f, strain2x_abs_error, strain2x_angle_error,
         output_file=os.path.join(output_dir,
@@ -117,5 +115,8 @@ for metric in ("mean", "max"):
         folder=os.path.join(output_dir, f"{metric}_phase_errors"),
         metric=metric,
     )
+    # mismatch
+    
+    
 
 print(f"\nAll plots saved to {output_dir}")

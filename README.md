@@ -17,9 +17,9 @@ Follow these steps to set up the project on your local machine:
 2. **Install dependencies**:
     Ensure you have conda installed. Then run:
     ```bash
-    conda create -n lisa_resp -c conda-forge gcc_linux-64 gxx_linux-64 numpy Cython scipy jupyter ipython h5py matplotlib python=3.12
+    conda create -n lisa_resp -c conda-forge gcc_linux-64 gxx_linux-64 python=3.12
     conda activate lisa_resp
-    pip install lisaorbits healpy pytdi segwo tqdm
+    pip install lisaorbits healpy pytdi tqdm numpy Cython scipy jupyter ipython h5py matplotlib tqdm
     ```
 
     You can also install for plotting `conda install -c conda-forge texlive-core`.
