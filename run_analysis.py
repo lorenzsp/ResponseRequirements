@@ -14,7 +14,7 @@ Usage
 
 import argparse
 import os
-
+import matplotlib.pyplot as plt
 import h5py
 import healpy as hp
 import numpy as np
@@ -45,11 +45,14 @@ parser.add_argument('--run_flag', type=str, default='static',
                     help="Orbit type to use.")
 parser.add_argument('--time_eval', type=float, default=0.0,
                     help="Evaluation epoch (days); relevant for evolving runs.")
+parser.add_argument('--boost_flag', type=int, default=1, choices=[0, 1],
+                    help="Whether to include the velocity boost in the response computation (1) or not (0).")
 args = parser.parse_args()
 
 run_flag = args.run_flag
 array_ltts = np.asarray([args.time_eval * 86400])
-print(f"run_flag: {run_flag}  |  time_eval: {args.time_eval} days")
+boost_flag = float(args.boost_flag)
+print(f"run_flag: {run_flag}  |  time_eval: {args.time_eval} days  |  boost_flag: {boost_flag}")
 
 # ---------------------------------------------------------------------------
 # Orbit setup
@@ -108,6 +111,19 @@ print("Test against Baghi:", check[~np.isnan(check)].max(),check[~np.isnan(check
 rel_diff_resp = np.abs(1-np.abs(strain2x_check_v0.conj() * strain2x_nominal)/(np.abs(strain2x_nominal) * np.abs(strain2x_check_v0)))
 print("Relative difference in response from boosted:", rel_diff_resp[~np.isnan(rel_diff_resp)].max(),rel_diff_resp[~np.isnan(rel_diff_resp)].mean())
 
+pol = 0
+mismatch_boost = []
+for pol in range(2):
+    # check shapes for np.linalg.solve
+    x = np.linalg.solve(cov_AET, strain2x_nominal[...,pol][...,np.newaxis])[...,0]
+    a_star = np.conj(strain2x_check_v0[...,pol])
+
+    A_B = 4 * np.real(np.einsum("ijkl,ijkl->ijk", a_star, x))
+    A_A = 4 * np.einsum("ijkl,ijkl->ijk", a_star, np.linalg.solve(cov_AET, strain2x_check_v0[...,pol][...,np.newaxis])[...,0]).real
+    B_B = 4 * np.einsum("ijkl,ijkl->ijk", strain2x_nominal[...,pol].conj(), x).real
+    mismatch_boost.append(np.abs(1 - A_B / (B_B * A_A)**0.5))
+mismatch_boost = np.stack(mismatch_boost,axis=-1)
+
 # ---------------------------------------------------------------------------
 # Perturbation parameters (one case; extend the list to run multiple)
 # ---------------------------------------------------------------------------
@@ -120,7 +136,7 @@ perturbation_params = [
 
 if run_flag == 'evolving':
     perturbation_params = perturbation_params[:1]
-    std_time   = f"{array_ltts[0] / 86400}days"
+    std_time   = f"{array_ltts[0] / 86400}days_"
     output_dirs = [f"segwo_results/{std_time}"]
 else:
     output_dirs = ["segwo_results/"]
@@ -129,7 +145,7 @@ else:
 # Main loop over perturbation cases
 # ---------------------------------------------------------------------------
 for output_dir, params in zip(output_dirs, perturbation_params):
-    output_dir += run_flag + "/"
+    output_dir += run_flag + "_boost" + str(boost_flag) + "/"
     print("=" * 60)
     print(f"Perturbation params : {params}")
     print(f"Output directory    : {output_dir}")
@@ -166,15 +182,15 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     position_residuals = perturbed_positions - positions
     velocity_residuals = perturbed_velocities - velocities
     for i in range(6):
-        print(f"  ltt std  link {LINKS[i]}: {np.std(ltt_residuals[:, i]) * c:.2f} m")
+        print(f"  ltt std  link {LINKS[i]}: {np.std(ltt_residuals[:, i]) * c:.2e} m")
     for i in range(3):
-        print(f"  pos std  SC{i + 1}      : {np.std(position_residuals[:, i]) / 1e3:.2f} km")
+        print(f"  pos std  SC{i + 1}      : {np.std(position_residuals[:, i]) / 1e3:.2e} km")
     for i in range(3):
-        print(f"  vel std  SC{i + 1}      : {np.std(velocity_residuals[:, i]) / 1e3:.2f} km")
+        print(f"  vel std  SC{i + 1}      : {np.std(velocity_residuals[:, i]) / 1e3:.2e} km")
 
     # --- Compute perturbed strain2x and error metrics ---
     print("Computing perturbed strain2x …")
-    strain2x_perturbed = compute_strain2x(f, betas, lambs, perturbed_ltt, perturbed_positions, velocities=perturbed_velocities)
+    strain2x_perturbed = compute_strain2x(f, betas, lambs, perturbed_ltt, perturbed_positions, velocities=perturbed_velocities*boost_flag)
     
     print(cov_AET.shape, strain2x_nominal.shape, strain2x_perturbed.shape)
     # --- Compute Mismatch Metric ---
@@ -186,7 +202,7 @@ for output_dir, params in zip(output_dirs, perturbation_params):
         x = np.linalg.solve(cov_AET, strain2x_nominal[...,pol][...,np.newaxis])[...,0]
         a_star = np.conj(strain2x_perturbed[...,pol])
 
-        A_B = 4 * np.einsum("ijkl,ijkl->ijk", a_star, x).real
+        A_B = 4 * np.real(np.einsum("ijkl,ijkl->ijk", a_star, x))
         A_A = 4 * np.einsum("ijkl,ijkl->ijk", a_star, np.linalg.solve(cov_AET, strain2x_perturbed[...,pol][...,np.newaxis])[...,0]).real
         B_B = 4 * np.einsum("ijkl,ijkl->ijk", strain2x_nominal[...,pol].conj(), x).real
         mismatch.append(np.abs(1 - A_B / (B_B * A_A)**0.5))
@@ -210,8 +226,8 @@ for output_dir, params in zip(output_dirs, perturbation_params):
         strain2x_abs_error, strain2x_angle_error,
         amp_req=1e-4, phase_req=1e-2,
     )
-    print(f"  Amplitude violation ratio : {amp_violation_ratio:.4f}")
-    print(f"  Phase    violation ratio  : {phase_violation_ratio:.4f}")
+    # print(f"  Amplitude violation ratio : {amp_violation_ratio:.4f}")
+    # print(f"  Phase    violation ratio  : {phase_violation_ratio:.4f}")
     
     # --- Save to HDF5 ---
     hdf5_path = os.path.join(output_dir, "results.h5")
@@ -237,6 +253,7 @@ for output_dir, params in zip(output_dirs, perturbation_params):
         nom.create_dataset("positions",      data=positions)
         nom.create_dataset("strain2x_real",  data=np.real(strain2x_nominal))
         nom.create_dataset("strain2x_imag",  data=np.imag(strain2x_nominal))
+        nom.create_dataset("mismatch_boost", data=mismatch_boost)
 
         # Perturbed samples
         pert = hf.create_group("perturbed")
@@ -255,6 +272,15 @@ for output_dir, params in zip(output_dirs, perturbation_params):
 
     print(f"Results saved to {hdf5_path}")
 
+    plt.figure(figsize=(12, 5))
+    plt.contourf(np.arange(npix), f, np.log10(mismatch_boost[0,:,:,0]))
+    plt.yscale('log')
+    plt.colorbar(label='log10 Mismatch due to boost hplus')
+    plt.xlabel('Sky pixel index')
+    plt.ylabel('Frequency (Hz)')
+    plt.title('Mismatch between boosted and non-boosted response')
+    
+    plt.savefig(os.path.join(output_dir, "mismatch_boost.png"))
     # Keep the legacy text summary for quick inspection
     np.savetxt(
         os.path.join(output_dir, "strain2x_errors.txt"),

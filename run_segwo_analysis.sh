@@ -7,35 +7,34 @@ set -e
 # ---------------------------------------------------------------------------
 # COMPUTE
 # ---------------------------------------------------------------------------
-echo "=== [1/6] Computing: static orbits ==="
-python run_analysis.py --run_flag static
+# echo "=== [1/6] Computing: static orbits ==="
+# python run_analysis.py --run_flag static --boost_flag 0
 
 echo ""
 echo "=== [2/6] Computing: evolving orbits at t=15 days ==="
-python run_analysis.py --run_flag evolving --time_eval 15
+python run_analysis.py --run_flag evolving --time_eval 15 --boost_flag 0
 
 echo ""
 echo "=== [3/6] Computing: evolving orbits at t=0 days ==="
-python run_analysis.py --run_flag evolving --time_eval 0
-
-# echo ""
-# echo "=== [4/6] Computing: response evolution (nominal + realization 1) ==="
-# python run_evolution.py
+python run_analysis.py --run_flag evolving --time_eval 0 --boost_flag 0
 
 # ---------------------------------------------------------------------------
 # PLOT
 # ---------------------------------------------------------------------------
 echo ""
 echo "=== [5/6] Plotting: static ==="
-python plot_analysis.py --results_dir segwo_results/static/
+python plot_analysis.py --results_dir segwo_results/static_boost0.0/
+# python plot_analysis.py --results_dir segwo_results/static_boost1.0/
 
 echo ""
 echo "=== [5b] Plotting: evolving at t=15 days ==="
-python plot_analysis.py --results_dir "segwo_results/15.0daysevolving/"
+python plot_analysis.py --results_dir "segwo_results/15.0days_evolving_boost0.0/"
+# python plot_analysis.py --results_dir "segwo_results/15.0days_evolving_boost1.0/"
 
 echo ""
 echo "=== [5c] Plotting: evolving at t=0 days ==="
-python plot_analysis.py --results_dir "segwo_results/0.0daysevolving/"
+python plot_analysis.py --results_dir "segwo_results/0.0days_evolving_boost0.0/"
+# python plot_analysis.py --results_dir "segwo_results/0.0days_evolving_boost1.0/"
 
 # echo ""
 # echo "=== [6/6] Plotting: response evolution ==="
