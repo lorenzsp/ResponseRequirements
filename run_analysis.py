@@ -34,7 +34,7 @@ np.random.seed(2601)
 # Frequency grid
 # ---------------------------------------------------------------------------
 f = np.logspace(-4, -2., 10)
-f = np.append(f, np.logspace(-2., 0., 150))
+f = np.append(f, np.logspace(-2., 0., 140))
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -82,7 +82,8 @@ if run_flag == 'evolving':
 # ---------------------------------------------------------------------------
 ltts      = orbits.compute_ltt(t=array_ltts)
 positions = orbits.compute_position(t=array_ltts)
-print(f"Nominal ltts shape: {ltts.shape}  |  positions shape: {positions.shape}")
+velocities = orbits.compute_velocity(t=array_ltts)
+print(f"Nominal ltts shape: {ltts.shape}  |  positions shape: {positions.shape}  |  velocities shape: {velocities.shape}")
 
 # ---------------------------------------------------------------------------
 # HEALPix sky grid
@@ -96,10 +97,16 @@ betas, lambs = np.pi / 2 - thetas, phis
 # Nominal strain-to-TDI matrix
 # ---------------------------------------------------------------------------
 print("Computing nominal strain2x …")
-strain2x_nominal = compute_strain2x(f, betas, lambs, ltts, positions)
+strain2x_nominal = compute_strain2x(f, betas, lambs, ltts, positions, velocities=velocities)
 print(f"strain2x_nominal shape: {strain2x_nominal.shape}")
 cov_AET = compute_covariance(f, ltts)[:,:,np.newaxis,:,:] # added an axis for sky pixels
 print(f"cov_AET shape: {cov_AET.shape}")
+strain2x_check_v0 = compute_strain2x(f, betas, lambs, ltts, positions, velocities=velocities*0.0)
+strain2x_check_baghi = compute_strain2x(f, betas, lambs, ltts, positions, velocities=None)
+check = np.abs(1-np.abs(strain2x_check_v0.conj() * strain2x_check_baghi)/(np.abs(strain2x_check_baghi) * np.abs(strain2x_check_v0)))
+print("Test against Baghi:", check[~np.isnan(check)].max(),check[~np.isnan(check)].mean())
+rel_diff_resp = np.abs(1-np.abs(strain2x_check_v0.conj() * strain2x_nominal)/(np.abs(strain2x_nominal) * np.abs(strain2x_check_v0)))
+print("Relative difference in response from boosted:", rel_diff_resp[~np.isnan(rel_diff_resp)].max(),rel_diff_resp[~np.isnan(rel_diff_resp)].mean())
 
 # ---------------------------------------------------------------------------
 # Perturbation parameters (one case; extend the list to run multiple)
@@ -131,6 +138,7 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     # --- Draw N perturbed realisations ---
     perturbed_ltt       = np.zeros((N, 6))
     perturbed_positions = np.zeros((N, 3, 3))
+    perturbed_velocities = np.zeros((N, 3, 3))
 
     for i in trange(N, desc="Perturbations"):
         if run_flag == 'static':
@@ -152,18 +160,21 @@ for output_dir, params in zip(output_dirs, perturbation_params):
 
         perturbed_ltt[i]       = po.compute_ltt(t=array_ltts)
         perturbed_positions[i] = po.compute_position(t=array_ltts)
+        perturbed_velocities[i] = po.compute_velocity(t=array_ltts)
 
     ltt_residuals      = perturbed_ltt - ltts
     position_residuals = perturbed_positions - positions
-
+    velocity_residuals = perturbed_velocities - velocities
     for i in range(6):
         print(f"  ltt std  link {LINKS[i]}: {np.std(ltt_residuals[:, i]) * c:.2f} m")
     for i in range(3):
         print(f"  pos std  SC{i + 1}      : {np.std(position_residuals[:, i]) / 1e3:.2f} km")
+    for i in range(3):
+        print(f"  vel std  SC{i + 1}      : {np.std(velocity_residuals[:, i]) / 1e3:.2f} km")
 
     # --- Compute perturbed strain2x and error metrics ---
     print("Computing perturbed strain2x …")
-    strain2x_perturbed = compute_strain2x(f, betas, lambs, perturbed_ltt, perturbed_positions,)
+    strain2x_perturbed = compute_strain2x(f, betas, lambs, perturbed_ltt, perturbed_positions, velocities=perturbed_velocities)
     
     print(cov_AET.shape, strain2x_nominal.shape, strain2x_perturbed.shape)
     # --- Compute Mismatch Metric ---

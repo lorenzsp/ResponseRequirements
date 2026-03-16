@@ -3,7 +3,7 @@ from lisaorbits.utils import dot, norm, receiver, emitter, arrayindex, atleast_2
 
 from lisaorbits import StaticConstellation, Orbits
 from lisaconstants import SUN_SCHWARZSCHILD_RADIUS, c
-from segwo.response import compute_strain2link, project_covariance
+from segwo.response import compute_strain2link, project_covariance, compute_source_basis
 from segwo.cov import construct_mixing_from_pytdi, compose_mixings, construct_covariance_from_psds, project_covariance
 import scipy.interpolate
 from lisaconstants.indexing import LINKS
@@ -170,7 +170,7 @@ class InterpolatedOrbits(Orbits):
 
         # Compute spline interpolation for light travel times if provided
         if ltts is not None:
-            print("Interpolating light travel times (ltts). Make sure that ltts are in the same order as LINKS:", LINKS)
+            # print("Interpolating light travel times (ltts). Make sure that ltts are in the same order as LINKS:", LINKS)
             self.interp_ltt = {link: interpolate(ltts[:, ind]) for ind,link in enumerate(LINKS)}
             self.interp_ltt_deriv = {link: interpolate(ltts[:, ind]).derivative() for ind,link in enumerate(LINKS)}
         else:
@@ -467,8 +467,57 @@ def compute_covariance(f, ltts):
 
     return noise_cov_tdi_pytdi
 
+def _link_response_boosted(
+    f, beta, lamb, ltts, positions, velocities
+):
+    k, u, v = compute_source_basis(beta, lamb)  # (loc, xyz)
 
-def compute_strain2x(frequencies, betas, lambs, ltts, positions):
+    index_emitter = np.array([1, 2, 0, 2, 1, 0])
+    index_receiver = np.array([0, 1, 2, 0, 2, 1])
+
+    x_i = positions[:, index_receiver]  # receiver i
+    x_j = positions[:, index_emitter]   # emitter j
+    v_i = velocities[:, index_receiver] / c
+    v_j = velocities[:, index_emitter] / c
+
+    n = x_i - x_j
+    n /= np.linalg.norm(n, axis=-1, keepdims=True)  # (t, link, xyz)
+
+    mu = np.einsum("tij,kj->tki", n, k)                 # (t, loc, link)
+    kdot_xi = np.einsum("tij,kj->tki", x_i, k)          # (t, loc, link)
+    kdot_xj = np.einsum("tij,kj->tki", x_j, k)          # (t, loc, link)
+    kdot_vi = np.einsum("tij,kj->tki", v_i, k)          # (t, loc, link)
+    kdot_vj = np.einsum("tij,kj->tki", v_j, k)          # (t, loc, link)
+    ndot_vi = np.einsum("tij,tij->ti", n, v_i)[:, None, :]  # (t,1,link)
+    ndot_vj = np.einsum("tij,tij->ti", n, v_j)[:, None, :]  # (t,1,link)
+
+    # velocity factors from your new equation
+    A_j = 1.0 - kdot_vj + ndot_vi
+    A_i = 1.0 - kdot_vi + (ndot_vj - 2.0 * ndot_vi)
+
+    # Broadcast
+    f4 = f[None, :, None, None]            # (1,f,1,1)
+    mu4 = mu[:, None, :, :]                # (t,1,loc,link)
+    A_j4 = A_j[:, None, :, :]
+    A_i4 = A_i[:, None, :, :]
+    kdot_xi4 = kdot_xi[:, None, :, :]
+    kdot_xj4 = kdot_xj[:, None, :, :]
+    ltts4 = ltts[:, None, None, :]
+
+    phi_j = 2 * np.pi * f4 * (ltts4 + kdot_xj4 / c)
+    phi_i = 2 * np.pi * f4 * (kdot_xi4 / c)
+
+    # direct implementation of Eq. (response_kernel_db)
+    geom = (A_j4 * np.exp(-1j * phi_j) - A_i4 * np.exp(-1j * phi_i))
+    g = 0.5 * geom / (1.0 - mu4)
+
+    xi_plus = np.einsum("tij,kj->tki", n, u) ** 2 - np.einsum("tij,kj->tki", n, v) ** 2
+    xi_cross = 2 * np.einsum("tij,kj->tki", n, u) * np.einsum("tij,kj->tki", n, v)
+    xi = np.stack([xi_plus, xi_cross], axis=-1)  # (t,loc,link,pol)
+
+    return g[..., None] * xi[:, None]
+
+def compute_strain2x(frequencies, betas, lambs, ltts, positions, velocities=None):
     """
     Compute the strain2x matrix for given frequencies, sky locations, and orbits.
 
@@ -484,10 +533,8 @@ def compute_strain2x(frequencies, betas, lambs, ltts, positions):
         Light travel times for the constellation.
     positions : np.array
         Spacecraft positions for the constellation.
-    orbits : StaticConstellation
-        StaticConstellation object representing the constellation.
-    A, E, T : np.array
-        TDI combinations.
+    velocities : np.array or None
+        Spacecraft velocities for the constellation. If None, the "baghi+23" method will be used, which does not include velocity effects.
 
     Returns
     -------
@@ -495,8 +542,11 @@ def compute_strain2x(frequencies, betas, lambs, ltts, positions):
         The composed mixing matrix to go directly from strain to TDI variables.
     """
     # Compute the complex signal response for the given frequencies and sky locations
-    # methods "baghi+23" and "hartwig+23" are available, the latter is more accurate but also more computationally expensive
-    strain2link = compute_strain2link(frequencies, betas, lambs, ltts, positions, method="baghi+23")
+    if velocities is not None:
+        strain2link = _link_response_boosted(frequencies, betas, lambs, ltts, positions, velocities)
+    else:
+        # methods "baghi+23" and "hartwig+23" are available, the latter is more accurate but also more computationally expensive
+        strain2link = compute_strain2link(frequencies, betas, lambs, ltts, positions, method="baghi+23")
     # Shape: times, frequencies, pixels, links, polarizations
     # Ie., it's the mixing matrix to go from h+/hx in terms of strain to single link
     # response in terms of fractional frequency deviation. See segwo documentation for details.
