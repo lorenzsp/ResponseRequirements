@@ -22,53 +22,11 @@ Follow these steps to set up the project on your local machine:
     pip install lisaorbits healpy pytdi tqdm numpy Cython scipy jupyter ipython h5py matplotlib tqdm
     ```
 
-    You can also install for plotting `conda install -c conda-forge texlive-core`.
-    
-    If you want to install on GPUs, add the location to the CUDA compiler `nvcc` and install cupy:
-    ```bash
-    export PATH=$PATH:/usr/local/cuda-12.5/
-    pip install cupy-cuda12x
-    ```
-
-3. **For GPU accelerated response**:
-    Then run:
-    ```bash
-    git clone https://github.com/mikekatz04/lisa-on-gpu.git
-    cd lisa-on-gpu
-    python scripts/prebuild.py
-    pip install .
-    git clone https://github.com/mikekatz04/LISAanalysistools.git
-    cd LISAanalysistools/
-    pip install .
-    ```
-
 ## Usage
-Execute the following command to create an orbit file:
+Execute the following command to run the analysis:
 ```bash
-python perturbation_utils.py 
+bash run_segwo_analysis.sh
 ```
-
-Run the assessment
-```bash
-python assess_impact.py
-```
-
-## Contributing
-Contributions are welcome! Please follow these steps:
-1. Fork the repository.
-2. Create a new branch: `git checkout -b feature-name`.
-3. Commit your changes: `git commit -m "Add feature"`.
-4. Push to the branch: `git push origin feature-name`.
-5. Open a pull request.
-
-<!-- ## License
-This project is licensed under the [License Name]. See the [LICENSE](LICENSE) file for details. -->
-
-## TODO:
-- check which variables Mike's and which interpolation method is used in the CUDA c++ and cadence
-- check the impact of dt on the results and check GB
-- as a function of the constellation errors see the impact on the mismatch
-- setup overleaf
 
 
 ## Contact
