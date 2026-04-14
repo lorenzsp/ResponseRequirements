@@ -103,6 +103,7 @@ print("Computing nominal strain2x …")
 strain2x_nominal = compute_strain2x(f, betas, lambs, ltts, positions, velocities=velocities)
 print(f"strain2x_nominal shape: {strain2x_nominal.shape}")
 cov_AET = compute_covariance(f, ltts)[:,:,np.newaxis,:,:] # added an axis for sky pixels
+inv_cov_AET = np.linalg.inv(cov_AET)
 print(f"cov_AET shape: {cov_AET.shape}")
 strain2x_check_v0 = compute_strain2x(f, betas, lambs, ltts, positions, velocities=velocities*0.0)
 strain2x_check_baghi = compute_strain2x(f, betas, lambs, ltts, positions, velocities=None)
@@ -111,18 +112,10 @@ print("Test against Baghi:", check[~np.isnan(check)].max(),check[~np.isnan(check
 rel_diff_resp = np.abs(1-np.abs(strain2x_check_v0.conj() * strain2x_nominal)/(np.abs(strain2x_nominal) * np.abs(strain2x_check_v0)))
 print("Relative difference in response from boosted:", rel_diff_resp[~np.isnan(rel_diff_resp)].max(),rel_diff_resp[~np.isnan(rel_diff_resp)].mean())
 
-pol = 0
-mismatch_boost = []
-for pol in range(2):
-    # check shapes for np.linalg.solve
-    x = np.linalg.solve(cov_AET, strain2x_nominal[...,pol][...,np.newaxis])[...,0]
-    a_star = np.conj(strain2x_check_v0[...,pol])
-
-    A_B = 4 * np.real(np.einsum("ijkl,ijkl->ijk", a_star, x))
-    A_A = 4 * np.einsum("ijkl,ijkl->ijk", a_star, np.linalg.solve(cov_AET, strain2x_check_v0[...,pol][...,np.newaxis])[...,0]).real
-    B_B = 4 * np.einsum("ijkl,ijkl->ijk", strain2x_nominal[...,pol].conj(), x).real
-    mismatch_boost.append(np.abs(1 - A_B / (B_B * A_A)**0.5))
-mismatch_boost = np.stack(mismatch_boost,axis=-1)
+A_A = 4 * np.einsum("ijklm,ijklr,ijkrm->ijkm",np.conj(strain2x_check_v0), inv_cov_AET, strain2x_check_v0).real
+A_B = 4 * np.einsum("ijklm,ijklr,ijkrm->ijkm",np.conj(strain2x_check_v0), inv_cov_AET, strain2x_nominal).real
+B_B = 4 * np.einsum("ijklm,ijklr,ijkrm->ijkm",np.conj(strain2x_nominal), inv_cov_AET, strain2x_nominal).real
+mismatch_boost = np.abs(1 - A_B / (B_B * A_A)**0.5)
 
 # ---------------------------------------------------------------------------
 # Perturbation parameters (one case; extend the list to run multiple)
@@ -195,18 +188,10 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     print(cov_AET.shape, strain2x_nominal.shape, strain2x_perturbed.shape)
     # --- Compute Mismatch Metric ---
     # a^T C^-1 b = a^T x where x is obtained from C x = b
-    pol = 0
-    mismatch = []
-    for pol in range(2):
-        # check shapes for np.linalg.solve
-        x = np.linalg.solve(cov_AET, strain2x_nominal[...,pol][...,np.newaxis])[...,0]
-        a_star = np.conj(strain2x_perturbed[...,pol])
-
-        A_B = 4 * np.real(np.einsum("ijkl,ijkl->ijk", a_star, x))
-        A_A = 4 * np.einsum("ijkl,ijkl->ijk", a_star, np.linalg.solve(cov_AET, strain2x_perturbed[...,pol][...,np.newaxis])[...,0]).real
-        B_B = 4 * np.einsum("ijkl,ijkl->ijk", strain2x_nominal[...,pol].conj(), x).real
-        mismatch.append(np.abs(1 - A_B / (B_B * A_A)**0.5))
-    mismatch = np.stack(mismatch,axis=-1)
+    A_A = 4 * np.einsum("ijklm,ijklr,ijkrm->ijkm",np.conj(strain2x_perturbed), inv_cov_AET, strain2x_perturbed).real
+    A_B = 4 * np.einsum("ijklm,ijklr,ijkrm->ijkm",np.conj(strain2x_perturbed), inv_cov_AET, strain2x_nominal).real
+    B_B = 4 * np.einsum("ijklm,ijklr,ijkrm->ijkm",np.conj(strain2x_nominal), inv_cov_AET, strain2x_nominal).real
+    mismatch = np.abs(1 - A_B / (B_B * A_A)**0.5)
 
     # --- Compute Relative Difference on Amplitude abd Phase Difference Metric ---
     denom = np.sqrt(

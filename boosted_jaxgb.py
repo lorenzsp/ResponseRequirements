@@ -86,19 +86,22 @@ class JaxGBFull(JaxGB):
         n: int = 128,
     ) -> None:
         super().__init__(orbits, t_obs=t_obs, t0=t0, n=n)
-        # Pre-compute v/c for all three spacecraft on the slow time grid.
-        # Uses central-difference (jnp.gradient) along the time axis.
-        # Shape: (3_sc, 3_xyz, n) — same layout as self.position.
-        
-        # self.velocity: jax.Array = (
-        #     jnp.gradient(self.position, self.dtm, axis=2) / c
-        # )
         
         self.velocity = (
             self.orbits.compute_velocity(self.t0 + self.tm, [1, 2, 3])
             .swapaxes(0, 1)
             .swapaxes(1, 2)
         ) / c  # (3, 3, n)
+
+        self.ltts = self.orbits.compute_ltt(self.t0 + self.tm)
+        ltt = jnp.mean(self.orbits.compute_ltt(self.t0 + self.tm).T, axis=0)  # (6, n) -> (n,)
+        self.arm_length = ltt * c
+        self.position = (
+            self.orbits.compute_position(self.t0 + self.tm, [1, 2, 3])
+            .swapaxes(0, 1)
+            .swapaxes(1, 2)
+        )  # (3, 3, n)
+        self.fstar = c / (self.arm_length * 2 * np.pi)
 
     # ------------------------------------------------------------------
 
@@ -138,6 +141,14 @@ class JaxGBFull(JaxGB):
         r = r.at[2].set(self.position[2] - self.position[1])
         r = r.at[3].set(-r[1])
         r /= self.arm_length
+        # MOSAS = np.array([12, 23, 31, 13, 32, 21])
+        r = jnp.zeros((4, 3, self.n))
+        r = r.at[0].set((self.position[1] - self.position[0])/(self.ltts[:,0] * c))
+        r = r.at[1].set((self.position[2] - self.position[0])/(self.ltts[:,3] * c))
+        r = r.at[2].set((self.position[2] - self.position[1])/(self.ltts[:,1] * c))
+        r = r.at[3].set(-r[1]/(self.ltts[:,2] * c))
+        # r /= self.arm_length
+        print("Mean relative difference", np.mean(self.arm_length/(self.ltts[:,0] * c)-1))
 
         # ── k̂·n̂ for all 6 directed links ─────────────────────────────────────
         # kdotr convention: [12, 21, 13, 31, 23, 32]  (identical to parent)
@@ -152,7 +163,7 @@ class JaxGBFull(JaxGB):
         xi    = self.tm - kdotp_raw                                # retarded time
         fi    = f0[:, None, None] + fdot[:, None, None] * xi      # inst. GW freq.
         fonfs = fi / self.fstar                                    # Ω_gw·L/c
-
+        
         # ── Strain coupling A_ij ──────────────────────────────────────────────
         # (identical to parent)  idx selects r_12, r_23, r_31 from r
         idx   = jnp.array([0, 2, 3])
@@ -211,7 +222,10 @@ class JaxGBFull(JaxGB):
         phi_tx  = kdotp[:, tx_sc, :]   # φ_tx,          (nsrc, 6, n)
         phi_rx  = kdotp[:, rx_sc, :]   # φ_rx,          (nsrc, 6, n)
         omega_L = fonfs[:, tx_sc, :]   # Ω_gw(ξ_tx)·L/c (nsrc, 6, n)
-
+        # new implementation
+        # fstar_new = 1 / (self.ltts[tx_sc] * 2 * np.pi)
+        # omega_L = fonfs[:, tx_sc, :] * self.fstar / fstar_new
+        
         # Geometric denominator  1 + k̂·n̂_ij  (parent sign convention)
         denom = 1.0 + kdotr[:, link_ord]   # (nsrc, 6, n)
 

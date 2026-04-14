@@ -586,12 +586,12 @@ def compute_violation_ratios(strain2x_abs_error, strain2x_angle_error, amp_req=1
     amp_violation_points = np.sum((strain2x_abs_error > amp_req))
     total_points_amp = np.sum(strain2x_abs_error**0)
     amp_violation_ratio = amp_violation_points / total_points_amp
-    print("Amplitude violation ratio:", strain2x_abs_error[(strain2x_abs_error > amp_req)])
+    # print("Amplitude violation ratio:", strain2x_abs_error[(strain2x_abs_error > amp_req)])
     # Phase violation
     phase_violation_points = np.sum((strain2x_angle_error > phase_req))
     total_points_phase = np.sum(strain2x_angle_error**0)
     phase_violation_ratio = phase_violation_points / total_points_phase
-    print("Phase violation ratio:", strain2x_angle_error[(strain2x_angle_error > phase_req)])
+    # print("Phase violation ratio:", strain2x_angle_error[(strain2x_angle_error > phase_req)])
     # print values of violations
 
     return amp_violation_ratio, phase_violation_ratio

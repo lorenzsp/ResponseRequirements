@@ -29,10 +29,10 @@ print(f"Available devices: {jax.devices()}")
 # ==================== Observation Configuration ====================
 
 # Observation parameters
-T_OBS_DAYS = 365.25 * 1.0                      # Observation time in days
+T_OBS_DAYS = 15.0 * 1.0                      # Observation time in days
 TMAX = T_OBS_DAYS * 24 * 3600          # Observation time in seconds
 N_FREQ_BINS = 128                       # Number of frequency bins for heterodyned response
-T0 = 0                                  # Start time (seconds)
+T0 = 0.0                                  # Start time (seconds)
 DF = 1.0 / TMAX                         # Frequency resolution (Hz)
 
 print(f"Observation time: {T_OBS_DAYS:.1f} days ({TMAX:.2e} seconds)")
@@ -43,6 +43,13 @@ with h5py.File("processed_trajectories.h5", "r") as ds:
     x_orb_dataset   = ds["spacecraft_positions"][()]
     v_orb_dataset   = ds["spacecraft_velocities"][()]
     ltts_dataset    = ds['owlt_12_23_31_13_32_21'][()]
+    
+    mask_time = t_orb_dataset < TMAX*1.1
+    t_orb_dataset = t_orb_dataset[mask_time]
+    x_orb_dataset = x_orb_dataset[:, mask_time, :]
+    v_orb_dataset = v_orb_dataset[:, mask_time, :]
+    ltts_dataset = ltts_dataset[:, mask_time]
+
 
 t_orb        = t_orb_dataset
 x_orb        = np.median(x_orb_dataset, axis=0)
@@ -55,7 +62,13 @@ orbits = InterpolatedOrbits(t_orb, x_orb,
                             spacecraft_velocities=v_orb,
                             ltts=ltts_median,
                             interp_order=3)
-i = 5
+
+orbits_v0 = InterpolatedOrbits(t_orb, x_orb,
+                            spacecraft_velocities=v_orb*0.0,
+                            ltts=ltts_median,
+                            interp_order=3)
+
+i = 0
 perturbed_orbits = InterpolatedOrbits(
                 t_orb_dataset,
                 x_orb_dataset[i],
@@ -64,13 +77,21 @@ perturbed_orbits = InterpolatedOrbits(
                 interp_order=3,
             )
 
+perturbed_orbits_v0 = InterpolatedOrbits(
+                t_orb_dataset,
+                x_orb_dataset[i],
+                spacecraft_velocities=v_orb_dataset[i]*0.0,
+                ltts=ltts_dataset[i],
+                interp_order=3,
+            )
 
-nonrel_nominal_orbit = JaxGB(orbits=orbits, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
+
+nonrel_nominal_orbit = JaxGBFull(orbits=orbits_v0, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
 rel_nominal_orbit = JaxGBFull(orbits=orbits, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
 test_rel_nominal_orbit = JaxGBFull(orbits=orbits, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
 test_rel_nominal_orbit.velocity *= 0.0
 
-nonrel_perturbed_orbit  = JaxGB(orbits=perturbed_orbits, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
+nonrel_perturbed_orbit  = JaxGBFull(orbits=perturbed_orbits_v0, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
 rel_perturbed_orbit = JaxGBFull(orbits=perturbed_orbits, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
 
 
@@ -93,15 +114,10 @@ npix         = hp.nside2npix(nside)
 thetas, phis = hp.pix2ang(nside, np.arange(npix))
 betas, lambs = np.pi / 2 - thetas, phis
 f0_vec = np.logspace(-4,0.0, num=10)
-output_file = "gb_mismatch_results.h5"
+output_file = f"gb_mismatch_results_{T_OBS_DAYS:.1f}days.h5"
 
 if os.path.exists(output_file):
-    mismatch = {}
-    with h5py.File(output_file, "r") as f:
-        f0_vec = f["f0_vec"][()]
-        for key in f.keys():
-            if key.startswith("mismatch_"):
-                mismatch[key] = f[key][()]
+    print(f"Output file {output_file} already exists. Loading results...")
 else:
     for ff in f0_vec:
         print(f"Processing f0 = {ff:.2e} Hz")
@@ -109,12 +125,12 @@ else:
         # Source 1:
         source_params = np.array([
             ff,                          # f0 (Hz)
-            1e-15,                           # fdot (Hz/s) - no evolution
-            1e-22,                         # amplitude (strain)
+            0.0,                           # fdot (Hz/s) - no evolution
+            1e-20,                         # amplitude (strain)
             0.5,                           # ecliptic latitude (rad)
             2.0,                           # ecliptic longitude (rad)
             0.0,                           # polarization (rad)
-            0.5,                           # inclination (rad)
+            0.0,                           # inclination (rad)
             0.0,                           # initial phase (rad)
         ], dtype=float)
         
@@ -130,20 +146,32 @@ else:
             
             kmin = int(np.array(template_generators[key][0].get_kmin(source_params[0,0],source_params[0,1])))
 
-            df = 1.0 / TMAX
-            freqs = df * (np.arange(N_FREQ_BINS) + kmin)
+            freqs = DF * (np.arange(N_FREQ_BINS) + kmin)
+            
+            # # plot A channel for both templates
+            # plt.figure()
+            # plt.plot(freqs, np.abs(A_nom[0]-A_perturb[0]), label="Nominal Orbit")
+            # plt.xscale("log")
+            # plt.yscale("log")
+            # plt.xlabel("Frequency (Hz)")
+            # plt.ylabel("Amplitude")
+            # plt.title(f"A Channel - {key} - f0={ff:.2e} Hz")
+            # plt.legend()
+            # plt.grid()
+            # plt.tight_layout()
+            # plt.show()
             
             cov_AET = compute_covariance(freqs, ltts_median).mean(axis=0)
             inv_cov_AET = np.linalg.inv(cov_AET)
             
             d_nom = np.stack([A_nom, E1_nom, T1_nom], axis=0)
             d_perturb = np.stack([A_perturb, E1_perturb, T1_perturb], axis=0)
-            
+
             # val_per_sky = np.einsum('csf,fcd,dsf->s', d_perturb.conj(), inv_cov_AET, d_nom)
-            nom_pert = 4 * np.einsum('csf,fcd,dsf->s', d_perturb.conj(), inv_cov_AET, d_nom).real * df
-            nom_nom = 4 * np.einsum('csf,fcd,dsf->s', d_nom.conj(), inv_cov_AET, d_nom).real * df
-            pert_pert = 4 * np.einsum('csf,fcd,dsf->s', d_perturb.conj(), inv_cov_AET, d_perturb).real * df
-            temp_mism = 1 - nom_pert / (nom_nom * pert_pert)**0.5
+            nom_pert = 4 * np.einsum('csf,fcd,dsf->s', d_perturb.conj(), inv_cov_AET, d_nom).real * DF
+            nom_nom = 4 * np.einsum('csf,fcd,dsf->s', d_nom.conj(), inv_cov_AET, d_nom).real * DF
+            pert_pert = 4 * np.einsum('csf,fcd,dsf->s', d_perturb.conj(), inv_cov_AET, d_perturb).real * DF
+            temp_mism = np.abs(1 - nom_pert / (nom_nom * pert_pert)**0.5)
             mismatch[key].append(temp_mism)
             print(f"    Mismatch: {temp_mism.mean():.2e} (mean), {temp_mism.min():.2e} (min), {temp_mism.max():.2e} (max)")
     
@@ -157,19 +185,40 @@ else:
             f.create_dataset(f"mismatch_{key}", data=mismatch[key])
     print(f"Results saved to {output_file}")
 
+mismatch = {}
+with h5py.File(output_file, "r") as f:
+    f0_vec = f["f0_vec"][()]
+    for key in f.keys():
+        if key.startswith("mismatch_"):
+            mismatch[key] = f[key][()]
+
+labels = {
+    "mismatch_perturbed_vs_nominal_with_nonrel": "Perturbed vs Nominal Orbits (Non-Boosted Response)",
+    "mismatch_perturbed_vs_nominal_with_rel": "Perturbed vs Nominal Orbits (Boosted Response)",
+    "mismatch_nonrel_vs_rel_with_perturbed": "Non-Boosted vs Boosted Response (Perturbed orbits)",
+    "mismatch_nonrel_vs_rel_with_nominal": "Non-Boosted vs Boosted Response (Nominal orbits)",
+    "mismatch_nonrel_vs_rel_test": "Non-Boosted. vs Boosted Response (Test)",
+}
+
 plt.figure()
 for key in mismatch.keys():
     if 'test' in key:
         continue
-    plt.errorbar(f0_vec, mismatch[key].mean(axis=1), yerr=[mismatch[key].min(axis=1), mismatch[key].max(axis=1)], label=key, fmt='o')
+    if key == 'mismatch_nonrel_vs_rel_with_perturbed':
+        continue
+    y_mean = mismatch[key].mean(axis=1)
+    y_min = mismatch[key].min(axis=1)
+    y_max = mismatch[key].max(axis=1)
+    plt.fill_between(f0_vec, y_min, y_max, alpha=0.2)
+    plt.plot(f0_vec, y_mean, '-o', label=labels[key])
 plt.xscale("log")
 plt.yscale("log")
-plt.xlabel("Frequency (Hz)")
+plt.xlabel("Galactic Binary Frequency (Hz)")
 plt.ylabel("Mismatch")
 plt.title("Mismatch between GB templates")
 plt.legend()
 plt.grid()
 plt.tight_layout()
-plt.savefig("gb_mismatch_plot.png")
+plt.savefig(f"gb_mismatch_plot_{T_OBS_DAYS:.1f}days.png", dpi=300)
 plt.show()
 
