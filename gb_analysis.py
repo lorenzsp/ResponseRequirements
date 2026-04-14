@@ -86,12 +86,21 @@ perturbed_orbits_v0 = InterpolatedOrbits(
             )
 
 
+nonrel_nominal_orbit_old = JaxGB(orbits=orbits_v0, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
+
+# non relativistic model
 nonrel_nominal_orbit = JaxGBFull(orbits=orbits_v0, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
-rel_nominal_orbit = JaxGBFull(orbits=orbits, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
+# nonrel_nominal_orbit = JaxGB(orbits=orbits_v0, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
+
+nonrel_perturbed_orbit  = JaxGBFull(orbits=perturbed_orbits_v0, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
+# nonrel_perturbed_orbit  = JaxGB(orbits=perturbed_orbits_v0, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
+
+# test model
 test_rel_nominal_orbit = JaxGBFull(orbits=orbits, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
 test_rel_nominal_orbit.velocity *= 0.0
 
-nonrel_perturbed_orbit  = JaxGBFull(orbits=perturbed_orbits_v0, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
+# relativistic model
+rel_nominal_orbit = JaxGBFull(orbits=orbits, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
 rel_perturbed_orbit = JaxGBFull(orbits=perturbed_orbits, t_obs=TMAX, t0=T0, n=N_FREQ_BINS)
 
 
@@ -103,6 +112,35 @@ template_generators["nonrel_vs_rel_with_perturbed"] = [nonrel_perturbed_orbit, r
 template_generators["nonrel_vs_rel_with_nominal"] = [nonrel_nominal_orbit, rel_nominal_orbit]
 template_generators["nonrel_vs_rel_test"] = [nonrel_nominal_orbit, test_rel_nominal_orbit]
 
+# # test
+# source_params = np.array([
+#             1e-4,                          # f0 (Hz)
+#             0.0,                           # fdot (Hz/s) - no evolution
+#             1e-20,                         # amplitude (strain)
+#             0.5,                           # ecliptic latitude (rad)
+#             2.0,                           # ecliptic longitude (rad)
+#             0.0,                           # polarization (rad)
+#             0.0,                           # inclination (rad)
+#             0.0,                           # initial phase (rad)
+#         ], dtype=float)
+        
+# A_nom, E1_nom, T1_nom = nonrel_nominal_orbit_old.get_tdi(jnp.array(source_params), tdi_generation=2.0, tdi_combination="AET")
+# A_nom_new, E1_nom_new, T1_nom_new = nonrel_nominal_orbit.get_tdi(jnp.array(source_params), tdi_generation=2.0, tdi_combination="AET")
+# kmin = int(np.array(nonrel_nominal_orbit_old.get_kmin(source_params[0],source_params[0])))
+# freqs = DF * (np.arange(N_FREQ_BINS) + kmin)
+# # plot A channel for both templates
+# plt.figure()
+# plt.plot(freqs, np.real(A_nom), 'C0-',label="Nominal Orbit")
+# plt.plot(freqs, np.real(A_nom_new), 'C1--',label="Nominal Orbit New")
+# plt.plot(freqs, np.imag(A_nom), 'C2-',label="Nominal Orbit")
+# plt.plot(freqs, np.imag(A_nom_new), 'C3--',label="Nominal Orbit New")
+# plt.xlabel("Frequency (Hz)")
+# plt.ylabel("Amplitude")
+# plt.legend()
+# plt.grid()
+# plt.tight_layout()
+# plt.show()
+# breakpoint()
 
 list_analysis = [key for key in template_generators.keys()]
 mismatch = {key : [] for key in list_analysis}
@@ -166,13 +204,27 @@ else:
             
             d_nom = np.stack([A_nom, E1_nom, T1_nom], axis=0)
             d_perturb = np.stack([A_perturb, E1_perturb, T1_perturb], axis=0)
-
+            
+            
             # val_per_sky = np.einsum('csf,fcd,dsf->s', d_perturb.conj(), inv_cov_AET, d_nom)
             nom_pert = 4 * np.einsum('csf,fcd,dsf->s', d_perturb.conj(), inv_cov_AET, d_nom).real * DF
             nom_nom = 4 * np.einsum('csf,fcd,dsf->s', d_nom.conj(), inv_cov_AET, d_nom).real * DF
             pert_pert = 4 * np.einsum('csf,fcd,dsf->s', d_perturb.conj(), inv_cov_AET, d_perturb).real * DF
+            if key == "perturbed_vs_nominal_with_nonrel":
+                
+                A_old, E1_old, T1_old = nonrel_nominal_orbit_old.get_tdi(jnp.array(source_params), tdi_generation=2.0, tdi_combination="AET")
+                d_old = np.stack([A_old, E1_old, T1_old], axis=0)
+                old_old = 4 * np.einsum('csf,fcd,dsf->s', d_old.conj(), inv_cov_AET, d_old).real * DF
+                nom_old = 4 * np.einsum('csf,fcd,dsf->s', d_nom.conj(), inv_cov_AET, d_old).real * DF
+                mism_old = 1 - nom_old / (nom_nom * old_old)**0.5
+                print(f"    Old Mismatch (Non-Boosted vs Old Non-Boosted): {mism_old.mean():.2e} (mean), {mism_old.min():.2e} (min), {mism_old.max():.2e} (max)")
+            
+            # plt.figure(); plt.plot(mism_old); plt.xlabel("Sky Index"); plt.ylabel("Mismatch"); plt.title("Old Mismatch"); plt.show()
+            # breakpoint()
+            
             temp_mism = np.abs(1 - nom_pert / (nom_nom * pert_pert)**0.5)
             mismatch[key].append(temp_mism)
+            
             print(f"    Mismatch: {temp_mism.mean():.2e} (mean), {temp_mism.min():.2e} (min), {temp_mism.max():.2e} (max)")
     
     for key in list_analysis:

@@ -135,20 +135,29 @@ class JaxGBFull(JaxGB):
 
         # ── Arm unit vectors ──────────────────────────────────────────────────
         # r convention: [r_12, r_13, r_23, r_31]  (identical to parent)
-        r = jnp.zeros((4, 3, self.n))
-        r = r.at[0].set(self.position[1] - self.position[0])
-        r = r.at[1].set(self.position[2] - self.position[0])
-        r = r.at[2].set(self.position[2] - self.position[1])
-        r = r.at[3].set(-r[1])
-        r /= self.arm_length
-        # MOSAS = np.array([12, 23, 31, 13, 32, 21])
-        r = jnp.zeros((4, 3, self.n))
-        r = r.at[0].set((self.position[1] - self.position[0])/(self.ltts[:,0] * c))
-        r = r.at[1].set((self.position[2] - self.position[0])/(self.ltts[:,3] * c))
-        r = r.at[2].set((self.position[2] - self.position[1])/(self.ltts[:,1] * c))
-        r = r.at[3].set(-r[1]/(self.ltts[:,2] * c))
+        # r = jnp.zeros((4, 3, self.n))
+        # r = r.at[0].set(self.position[1] - self.position[0])
+        # r = r.at[1].set(self.position[2] - self.position[0])
+        # r = r.at[2].set(self.position[2] - self.position[1])
+        # r = r.at[3].set(-r[1])
         # r /= self.arm_length
-        print("Mean relative difference", np.mean(self.arm_length/(self.ltts[:,0] * c)-1))
+        
+        # # option 1
+        # # MOSAS = np.array([12, 23, 31, 13, 32, 21])
+        # r = jnp.zeros((4, 3, self.n))
+        # r = r.at[0].set((self.position[1] - self.position[0])/(self.ltts[:,0] * c))
+        # r = r.at[1].set((self.position[2] - self.position[0])/(self.ltts[:,3] * c))
+        # r = r.at[2].set((self.position[2] - self.position[1])/(self.ltts[:,1] * c))
+        # r = r.at[3].set(-r[1]/(self.ltts[:,2] * c))
+        
+        # option 2
+        r = jnp.zeros((4, 3, self.n))
+        r = r.at[0].set((self.position[1] - self.position[0])/np.linalg.norm(self.position[1] - self.position[0], axis=0))
+        r = r.at[1].set((self.position[2] - self.position[0])/np.linalg.norm(self.position[2] - self.position[0], axis=0))
+        r = r.at[2].set((self.position[2] - self.position[1])/np.linalg.norm(self.position[2] - self.position[1], axis=0))
+        r = r.at[3].set(-r[1]/np.linalg.norm(self.position[1] - self.position[0], axis=0) / c)
+
+        # print("Mean relative difference", np.mean(self.arm_length/(self.ltts[:,0] * c)-1))
 
         # ── k̂·n̂ for all 6 directed links ─────────────────────────────────────
         # kdotr convention: [12, 21, 13, 31, 23, 32]  (identical to parent)
@@ -222,9 +231,9 @@ class JaxGBFull(JaxGB):
         phi_tx  = kdotp[:, tx_sc, :]   # φ_tx,          (nsrc, 6, n)
         phi_rx  = kdotp[:, rx_sc, :]   # φ_rx,          (nsrc, 6, n)
         omega_L = fonfs[:, tx_sc, :]   # Ω_gw(ξ_tx)·L/c (nsrc, 6, n)
-        # new implementation
-        # fstar_new = 1 / (self.ltts[tx_sc] * 2 * np.pi)
-        # omega_L = fonfs[:, tx_sc, :] * self.fstar / fstar_new
+        # # new implementation
+        # fstar_new = 1 / (self.ltts[:,tx_sc] * 2 * np.pi)
+        # omega_L = (fonfs[:, tx_sc, :] * self.fstar) / fstar_new.T
         
         # Geometric denominator  1 + k̂·n̂_ij  (parent sign convention)
         denom = 1.0 + kdotr[:, link_ord]   # (nsrc, 6, n)
