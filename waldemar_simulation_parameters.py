@@ -3,7 +3,7 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 
-with h5py.File("processed_trajectories.h5", "r") as dset:
+with h5py.File("data/processed_trajectories.h5", "r") as dset:
     pars_names = dset['sample_parameter_names'][()]
     pars = dset['sample_parameters'][()]
     mean_par = np.mean(dset['sample_parameters'][()],axis=0)

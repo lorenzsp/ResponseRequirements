@@ -55,8 +55,8 @@ hdf5_path = os.path.join(output_dir, "evolution_data.h5")
 # ---------------------------------------------------------------------------
 # Load trajectories
 # ---------------------------------------------------------------------------
-print("Loading trajectories from processed_trajectories.h5 …")
-with h5py.File("processed_trajectories.h5", "r") as ds:
+print("Loading trajectories from data/processed_trajectories.h5 …")
+with h5py.File("data/processed_trajectories.h5", "r") as ds:
     t_orb_dataset = ds["t_interp"][()]
     x_orb_dataset = ds["spacecraft_positions"][()]
     v_orb_dataset = ds["spacecraft_velocities"][()]

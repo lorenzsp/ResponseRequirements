@@ -55,7 +55,22 @@ if TYPE_CHECKING:
 
 # Adjust to your project layout, e.g. from lisagwresponse.jaxgb import JaxGB
 from jaxgb.jaxgb import JaxGB
+from jaxgb.tdi import to_tdi_combination, to_tdi_generation
 
+def _add_to(tdi_one, tdi_sum, kmin_arr, kmax, n):
+    def _update_fpoint(idx, val):
+        _mask = ((idx + kmin_arr) >= 0) & ((idx + kmin_arr) < kmax)
+        return jax.lax.dynamic_update_index_in_dim(
+            val,
+            val[:, idx + kmin_arr] + _mask * tdi_sum[:, idx],
+            idx + kmin_arr,
+            axis=1,
+        )
+
+
+    return jax.lax.fori_loop(0, n, _update_fpoint, tdi_one)
+
+vadd = jax.vmap(_add_to, in_axes=(0,0,0,None,None))
 
 class JaxGBFull(JaxGB):
     """Galactic binary response with the velocity-corrected two-exponential kernel.
@@ -207,7 +222,7 @@ class JaxGBFull(JaxGB):
         n_all = jnp.stack([r[0], r[2], r[3], -r[0], -r[2], r[1]])
 
         # ── Velocity projections ──────────────────────────────────────────────
-        vel = self.velocity  # (3_sc, 3_xyz, n), v/c dimensionless
+        vel = jnp.asarray(self.velocity)  # (3_sc, 3_xyz, n), v/c dimensionless
 
         # k̂·v for each spacecraft → (nsrc, 3_sc, n)
         k_dot_v    = jnp.einsum("sx,yxn->syn", k.T, vel)
@@ -250,3 +265,150 @@ class JaxGBFull(JaxGB):
 
         # Reorder → parent output convention [12, 23, 31, 13, 32, 21]
         return gs[:, [0, 1, 2, 5, 4, 3]]
+    
+    def get_data_minus_template(
+        self,
+        params: jax.Array,
+        data: jax.Array,
+        kmin: int | None = None,
+        kmax: int | None = None,
+        t_init: float = None,
+        **kwargs,
+    ) -> jnp.ndarray:
+        """
+        Compute data minus template
+        
+        Parameters
+        ----------
+        params : jax.Array
+            Physical parameters (8,) or (n_sources, 8)
+        kmin : int
+            Minimum frequency index
+        kmax : int
+            Maximum frequency index
+        t_init : float, optional
+            Initialization time
+            
+        Returns
+        -------
+        loglike : jnp.ndarray
+            Log-likelihood value
+        """
+        kmins = self.get_kmin(f0=params[:, 0], fdot=params[:, 1], t_init=t_init)
+
+        # Compute residual: data - sum(templates)
+        _x, _y, _z = self.get_tdi(params,t_init=t_init,**kwargs)
+        templates = -jnp.stack([_x, _y, _z],axis=1)
+        
+        return vadd(data, templates, kmins-kmin, kmax, self.n)
+
+    # ------------------------------------------------------------------
+
+    def inner_product(
+        self,
+        h1: jax.Array,
+        h2: jax.Array,
+        inv_cov: jax.Array,
+    ) -> jax.Array:
+        """Noise-weighted inner product  <h1 | h2> = 4 Re[∑_f h1†·S⁻¹·h2] Δf.
+
+        Parameters
+        ----------
+        h1, h2 : jax.Array, shape ``(N_batch, 3, N_freq)``
+            TDI arrays, batch-first.
+        inv_cov : jax.Array, shape ``(N_freq, 3, 3)``
+            Inverse noise covariance per frequency bin.
+
+        Returns
+        -------
+        jax.Array, shape ``(N_batch,)``
+            Real inner product per batch entry.
+        """
+        df = 1.0 / self.t_obs
+        # h1, h2: (N_batch, 3, N_freq), inv_cov: (N_freq, 3, 3) → (N_batch,)
+        return 4.0 * jnp.einsum("bcf,fcd,bdf->b", h1.conj(), inv_cov, h2).real * df
+
+    # ------------------------------------------------------------------
+
+    def log_likelihood(
+        self,
+        params: jax.Array,
+        data: jax.Array,
+        inv_cov: jax.Array,
+        kmin: int,
+        kmax: int,
+        max_batch_size: int | None = None,
+        **kwargs,
+    ) -> jnp.ndarray:
+        """Per-walker log-likelihood  -½ <d−h | d−h>.
+
+        Parameters
+        ----------
+        params : jax.Array, shape ``(N_walkers, 8)``
+            Source parameters per walker.
+        data : jax.Array, shape ``(N_walkers, 3, N_freq)``
+            Per-walker data windowed to the frequency band ``[kmin, kmax)``.
+        inv_cov : jax.Array, shape ``(N_freq, 3, 3)``
+            Inverse noise covariance per frequency bin.
+        kmin, kmax : int
+            Absolute frequency-bin limits of the data window.
+        max_batch_size : int, optional
+            When given, ``params`` and ``data`` are zero-padded to exactly
+            this length before the JAX call so that the compiled shape stays
+            fixed across MCMC iterations.  The returned array is always
+            sliced back to ``N_walkers``.
+        **kwargs
+            Forwarded to :meth:`get_data_minus_template` (e.g.
+            ``tdi_generation``, ``tdi_combination``).
+
+        Returns
+        -------
+        jnp.ndarray, shape ``(N_walkers,)``
+            Log-likelihood values.
+        """
+        n_actual = len(params)
+        if max_batch_size is not None and n_actual < max_batch_size:
+            pad = max_batch_size - n_actual
+            params = jnp.concatenate(
+                [params, jnp.zeros((pad, params.shape[-1]), dtype=params.dtype)],
+                axis=0,
+            )
+            data = jnp.concatenate(
+                [data, jnp.zeros((pad,) + data.shape[1:], dtype=data.dtype)],
+                axis=0,
+            )
+
+        d_m_h = self.get_data_minus_template(params, data, kmin, kmax, **kwargs)
+        # d_m_h: (N_batch, 3, N_freq) — matches inner_product convention directly
+        results = -0.5 * self.inner_product(d_m_h, d_m_h, inv_cov)
+        return results[:n_actual]
+
+    # ------------------------------------------------------------------
+
+    def mismatch(
+        self,
+        h1: jax.Array,
+        h2: jax.Array,
+        inv_cov: jax.Array,
+    ) -> jax.Array:
+        """Phase-maximised mismatch  1 − |<h1|h2>| / √(<h1|h1> <h2|h2>).
+
+        Parameters
+        ----------
+        h1, h2 : jax.Array, shape ``(N_batch, 3, N_freq)``
+            Pre-computed TDI template arrays, batch-first
+            (stack ``[A, E, T]`` along ``axis=1``).
+        inv_cov : jax.Array, shape ``(N_freq, 3, 3)``
+            Inverse noise covariance per frequency bin.
+
+        Returns
+        -------
+        jax.Array, shape ``(N_batch,)``
+            Phase-maximised mismatch per batch entry.
+        """
+        df = 1.0 / self.t_obs
+        # h1, h2: (N_batch, 3, N_freq), inv_cov: (N_freq, 3, 3) → (N_batch,)
+        h1h2 = 4.0 * jnp.einsum("bcf,fcd,bdf->b", h1.conj(), inv_cov, h2) * df
+        h1h1 = 4.0 * jnp.einsum("bcf,fcd,bdf->b", h1.conj(), inv_cov, h1).real * df
+        h2h2 = 4.0 * jnp.einsum("bcf,fcd,bdf->b", h2.conj(), inv_cov, h2).real * df
+        return 1.0 - jnp.abs(h1h2) / jnp.sqrt(h1h1 * h2h2)

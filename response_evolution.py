@@ -25,7 +25,7 @@ f = np.logspace(-4, 0., 300)
 array_ltts = np.linspace(0, 365*86400/12, 120)  # 100 time points over a year
 
 # evolving's orbits
-with h5py.File("processed_trajectories.h5", "r") as dset:
+with h5py.File("data/processed_trajectories.h5", "r") as dset:
     t_orb_dataset = dset["t_interp"][()]
     x_orb_dataset = dset["spacecraft_positions"][()]
     v_orb_dataset = dset["spacecraft_velocities"][()]

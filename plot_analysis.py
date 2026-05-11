@@ -22,6 +22,7 @@ from plot_utils import (
     plot_gw_response_maps,
     plot_ltt_residuals_histogram,
     plot_position_residuals_histogram,
+    plot_angle_histogram
 )
 
 # ---------------------------------------------------------------------------
@@ -58,24 +59,31 @@ with h5py.File(hdf5_path, "r") as hf:
 
     ltt_residuals      = hf["perturbed/ltt_residuals"][()]
     position_residuals = hf["perturbed/position_residuals"][()]
-
+    
     strain2x_abs_error   = hf["errors/strain2x_abs_error"][()]
     strain2x_angle_error = hf["errors/strain2x_angle_error"][()]
     mismatch             = hf["errors/mismatch"][()]
     amp_violation_ratio   = float(hf["errors"].attrs["amp_violation_ratio"])
     phase_violation_ratio = float(hf["errors"].attrs["phase_violation_ratio"])
+    angle = hf["errors/angle"][()]
 
 print(f"  run_flag                 : {run_flag}")
+
+if "static" in hdf5_path:
+    dist_centroid = 2.5e9 * np.sqrt(1/3)
+    expected_sigma = 50e3 * 2.13/ dist_centroid
+else:
+    expected_sigma = None
 # ---------------------------------------------------------------------------
 # Figures
 # ---------------------------------------------------------------------------
 
 # 1. Nominal response
 print("Plotting nominal response …")
-plot_response(f, npix, np.abs(strain2x_nominal[0]),
-              folder=output_dir,
-              output_file="initial_strain2x.png",
-              metric="mean")
+# plot_response(f, npix, np.abs(strain2x_nominal[0]),
+#               folder=output_dir,
+#               output_file="initial_strain2x.png",
+#               metric="mean")
 
 # 2. Residual histograms
 print("Plotting LTT residual histogram …")
@@ -89,6 +97,8 @@ plot_position_residuals_histogram(
     position_residuals,
     os.path.join(output_dir, "position_residuals_histogram.png"),
 )
+
+plot_angle_histogram(angle,os.path.join(output_dir, "angle_residuals_histogram.png"), expected_sigma=expected_sigma)
 
 # 3. Frequency-domain error plots + sky maps
 for metric in ("mean", "max"):

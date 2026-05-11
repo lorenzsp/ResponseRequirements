@@ -60,7 +60,7 @@ if run_flag == 'periodic_dev':
 
 if run_flag == 'evolving':
     # evolving's orbits
-    with h5py.File("processed_trajectories.h5", "r") as dset:
+    with h5py.File("data/processed_trajectories.h5", "r") as dset:
         t_orb_dataset = dset["t_interp"][()]
         x_orb_dataset = dset["spacecraft_positions"][()]
         v_orb_dataset = dset["spacecraft_velocities"][()]

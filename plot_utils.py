@@ -184,13 +184,14 @@ def plot_gw_response_maps(strain2x_error, f, npix, pols=('h+', 'hx'),
             
             ##############################################
             z = strain2x_error[:, :, link, pol]
-            vmin = np.max([1e-8,z.min()])
+            vmin = np.max([1e-12,z.min()])
             vmax = np.min([1.0,z.max()])
             z[z<vmin] = vmin
             z[z>vmax] = vmax
             
             dmin = np.floor(np.log10(vmin)) # down to lower decade
             dmax = np.ceil(np.log10(vmax)) # up to upper decade
+
             levels = np.logspace(dmin, dmax, num=int(dmax - dmin + 1))
             plt.figure(figsize=(6, 4))
             cf = plt.contourf(np.arange(z.shape[1]), f, z, levels=levels, norm=LogNorm(vmin=vmin, vmax=vmax),cmap="viridis")
@@ -267,6 +268,22 @@ def plot_position_residuals_histogram(position_residuals, output_file, figsize=(
     plt.savefig(output_file, dpi=300)
     plt.close()
 
+def plot_angle_histogram(angle, output_file, figsize=(3.5, 3), expected_sigma=None):
+    plt.figure(figsize=figsize)
+    plt.hist(angle, bins=20, alpha=0.5, density=False, histtype='step', linewidth=2.5)
+    if expected_sigma is not None:
+        plt.axvline(expected_sigma, color='r')
+    plt.xlabel(r"Angle $\delta \phi$")
+    plt.ylabel("Counts")
+    plt.tight_layout()
+    outdir = os.path.dirname(output_file)
+    if outdir:
+        os.makedirs(outdir, exist_ok=True)
+    plt.savefig(output_file, dpi=300)
+    plt.close()
+
+
+    
 def plot_mismatch(f, npix, mismatch, output_file, figsize=(6, 4), pols=('h+', 'hx'), folder="", metric="max"):
     if metric == "max":
         metric_func = np.max

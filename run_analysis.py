@@ -62,7 +62,8 @@ if run_flag == 'static':
     orbits = StaticConstellation.from_armlengths(2.5e9, 2.5e9, 2.5e9)
 
 if run_flag == 'evolving':
-    with h5py.File("processed_trajectories.h5", "r") as ds:
+    
+    with h5py.File("data/processed_trajectories.h5", "r") as ds:
         t_orb_dataset   = ds["t_interp"][()]
         x_orb_dataset   = ds["spacecraft_positions"][()]
         v_orb_dataset   = ds["spacecraft_velocities"][()]
@@ -74,6 +75,7 @@ if run_flag == 'evolving':
     ltts_median  = np.median(ltts_dataset,  axis=0)
     realizations = x_orb_dataset.shape[0]
     N            = realizations
+    N = 1000
     print(f"Number of realizations: {realizations}")
     orbits = InterpolatedOrbits(t_orb, x_orb,
                                 spacecraft_velocities=v_orb,
@@ -123,7 +125,15 @@ mismatch_boost = np.abs(1 - A_B / (B_B * A_A)**0.5)
 perturbation_params = [
     {"arm_lengths": [2.5e9, 2.5e9, 2.5e9],
      "armlength_error": 1,
-     "rotation_error": 5e3,
+     "rotation_error": 0.0,
+     "translation_error": 0.0},
+    {"arm_lengths": [2.5e9, 2.5e9, 2.5e9],
+     "armlength_error": 0.0,
+     "rotation_error": 50e3,
+     "translation_error": 0.0},
+    {"arm_lengths": [2.5e9, 2.5e9, 2.5e9],
+     "armlength_error": 0.0,
+     "rotation_error": 0.0,
      "translation_error": 50e3},
 ]
 
@@ -132,13 +142,17 @@ if run_flag == 'evolving':
     std_time   = f"{array_ltts[0] / 86400}days_"
     output_dirs = [f"segwo_results/{std_time}"]
 else:
-    output_dirs = ["segwo_results/"]
+    output_dirs = ["segwo_results/", "segwo_results/", "segwo_results/"]
 
 # ---------------------------------------------------------------------------
 # Main loop over perturbation cases
 # ---------------------------------------------------------------------------
 for output_dir, params in zip(output_dirs, perturbation_params):
-    output_dir += run_flag + "_boost" + str(boost_flag) + "/"
+    if run_flag == 'static':
+        name_suffix = f"/arm{params['armlength_error']}_rot{params['rotation_error']}_trans{params['translation_error']}"
+    else:
+        name_suffix = ''
+    output_dir += run_flag + name_suffix + "_boost" + str(boost_flag) + "/"
     print("=" * 60)
     print(f"Perturbation params : {params}")
     print(f"Output directory    : {output_dir}")
@@ -234,18 +248,28 @@ for output_dir, params in zip(output_dirs, perturbation_params):
 
         # Nominal
         nom = hf.create_group("nominal")
-        nom.create_dataset("ltts",           data=ltts)
-        nom.create_dataset("positions",      data=positions)
+        # nom.create_dataset("ltts",           data=ltts)
+        # nom.create_dataset("positions",      data=positions)
         nom.create_dataset("strain2x_real",  data=np.real(strain2x_nominal))
         nom.create_dataset("strain2x_imag",  data=np.imag(strain2x_nominal))
         nom.create_dataset("mismatch_boost", data=mismatch_boost)
-
+        barycenter_nom = np.mean(positions,axis=1)
+        sc1_sc2_nom = positions[:,0] - positions[:,1]
+        sc2_sc3_nom = positions[:,1] - positions[:,2]
+        normal_nom = np.linalg.cross(sc2_sc3_nom, sc1_sc2_nom)
+        normal_nom = normal_nom/np.linalg.norm(normal_nom,axis=1)[:,None]
+        
         # Perturbed samples
         pert = hf.create_group("perturbed")
-        pert.create_dataset("ltts",               data=perturbed_ltt)
-        pert.create_dataset("positions",          data=perturbed_positions)
+        # pert.create_dataset("ltts",               data=perturbed_ltt)
+        # pert.create_dataset("positions",          data=perturbed_positions)
         pert.create_dataset("ltt_residuals",      data=ltt_residuals)
         pert.create_dataset("position_residuals", data=position_residuals)
+        barycenter_per = np.mean(perturbed_positions,axis=1)
+        sc1_sc2_per = perturbed_positions[:,0] - perturbed_positions[:,1]
+        sc2_sc3_per = perturbed_positions[:,1] - perturbed_positions[:,2]
+        normal_per = np.linalg.cross(sc2_sc3_per, sc1_sc2_per)
+        normal_per = normal_per/np.linalg.norm(normal_per,axis=1)[:,None]
 
         # Error metrics
         err = hf.create_group("errors")
@@ -254,7 +278,10 @@ for output_dir, params in zip(output_dirs, perturbation_params):
         err.create_dataset("mismatch", data=mismatch)
         err.attrs["amp_violation_ratio"]   = amp_violation_ratio
         err.attrs["phase_violation_ratio"] = phase_violation_ratio
+        angle = (2*np.abs(1-np.sum(normal_nom * normal_per,axis=1)))**0.5 # = 1 - cos phi = phi^2/2
+        err.create_dataset("angle", data=angle)
 
+        
     print(f"Results saved to {hdf5_path}")
 
     plt.figure(figsize=(12, 5))
