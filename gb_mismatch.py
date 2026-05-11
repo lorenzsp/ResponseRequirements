@@ -152,7 +152,7 @@ npix         = hp.nside2npix(nside)
 thetas, phis = hp.pix2ang(nside, np.arange(npix))
 betas, lambs = np.pi / 2 - thetas, phis
 f0_vec = np.logspace(-4,0.0, num=10)
-output_file = f"gb_mismatch_maxphi_results_{T_OBS_DAYS:.1f}days.h5"
+output_file = f"data/gb_mismatch_results_{T_OBS_DAYS:.1f}days.h5"
 
 if os.path.exists(output_file):
     print(f"Output file {output_file} already exists. Loading results...")
@@ -198,13 +198,13 @@ else:
                 
                 A_old, E1_old, T1_old = nonrel_nominal_orbit_old.get_tdi(jnp.array(source_params), tdi_generation=2.0, tdi_combination="AET")
                 d_old = np.stack([A_old, E1_old, T1_old], axis=1)  # (N_sky, 3, N_freq)
-                mism_old = np.asarray(template_generators[key][0].mismatch(d_nom, d_old, inv_cov_AET))
+                mism_old = np.asarray(template_generators[key][0].mismatch(d_nom, d_old, inv_cov_AET, maximise_phase=False))
                 print(f"    Old Mismatch (Non-Boosted vs Old Non-Boosted): {mism_old.mean():.2e} (mean), {mism_old.min():.2e} (min), {mism_old.max():.2e} (max)")
             
             # plt.figure(); plt.plot(mism_old); plt.xlabel("Sky Index"); plt.ylabel("Mismatch"); plt.title("Old Mismatch"); plt.show()
             # breakpoint()
             
-            temp_mism = np.asarray(template_generators[key][0].mismatch(d_nom, d_perturb, inv_cov_AET))
+            temp_mism = np.asarray(template_generators[key][0].mismatch(d_nom, d_perturb, inv_cov_AET, maximise_phase=False))
             mismatch[key].append(temp_mism)
             
             print(f"    Mismatch: {temp_mism.mean():.2e} (mean), {temp_mism.min():.2e} (min), {temp_mism.max():.2e} (max)")
@@ -219,39 +219,40 @@ else:
             f.create_dataset(f"mismatch_{key}", data=mismatch[key])
     print(f"Results saved to {output_file}")
 
-mismatch = {}
-with h5py.File(output_file, "r") as f:
-    f0_vec = f["f0_vec"][()]
-    for key in f.keys():
-        if key.startswith("mismatch_"):
-            mismatch[key] = f[key][()]
+# ==================== Plot Results ====================
+# mismatch = {}
+# with h5py.File(output_file, "r") as f:
+#     f0_vec = f["f0_vec"][()]
+#     for key in f.keys():
+#         if key.startswith("mismatch_"):
+#             mismatch[key] = f[key][()]
 
-labels = {
-    "mismatch_perturbed_vs_nominal_with_nonrel": "Perturbed vs Nominal Orbits (Non-Boosted Response)",
-    "mismatch_perturbed_vs_nominal_with_rel": "Perturbed vs Nominal Orbits (Boosted Response)",
-    "mismatch_nonrel_vs_rel_with_perturbed": "Non-Boosted vs Boosted Response (Perturbed orbits)",
-    "mismatch_nonrel_vs_rel_with_nominal": "Non-Boosted vs Boosted Response (Nominal orbits)",
-    "mismatch_nonrel_vs_rel_test": "Non-Boosted. vs Boosted Response (Test)",
-}
+# labels = {
+#     "mismatch_perturbed_vs_nominal_with_nonrel": "Perturbed vs Nominal Orbits (Non-Boosted Response)",
+#     "mismatch_perturbed_vs_nominal_with_rel": "Perturbed vs Nominal Orbits (Boosted Response)",
+#     "mismatch_nonrel_vs_rel_with_perturbed": "Non-Boosted vs Boosted Response (Perturbed orbits)",
+#     "mismatch_nonrel_vs_rel_with_nominal": "Non-Boosted vs Boosted Response (Nominal orbits)",
+#     "mismatch_nonrel_vs_rel_test": "Non-Boosted. vs Boosted Response (Test)",
+# }
 
-plt.figure()
-for key in mismatch.keys():
-    if 'test' in key:
-        continue
-    if key == 'mismatch_nonrel_vs_rel_with_perturbed':
-        continue
-    y_mean = mismatch[key].mean(axis=1)
-    y_min = mismatch[key].min(axis=1)
-    y_max = mismatch[key].max(axis=1)
-    plt.fill_between(f0_vec, y_min, y_max, alpha=0.2)
-    plt.plot(f0_vec, y_mean, '-o', label=labels[key])
-plt.xscale("log")
-plt.yscale("log")
-plt.xlabel("Galactic Binary Frequency (Hz)")
-plt.ylabel("Mismatch")
-plt.title("Mismatch between GB templates")
-plt.legend()
-plt.grid()
-plt.tight_layout()
-plt.savefig(f"gb_mismatch_plot_{T_OBS_DAYS:.1f}days.png", dpi=300)
-plt.show()
+# plt.figure()
+# for key in mismatch.keys():
+#     if 'test' in key:
+#         continue
+#     if key == 'mismatch_nonrel_vs_rel_with_perturbed':
+#         continue
+#     y_mean = mismatch[key].mean(axis=1)
+#     y_min = mismatch[key].min(axis=1)
+#     y_max = mismatch[key].max(axis=1)
+#     plt.fill_between(f0_vec, y_min, y_max, alpha=0.2)
+#     plt.plot(f0_vec, y_mean, '-o', label=labels[key])
+# plt.xscale("log")
+# plt.yscale("log")
+# plt.xlabel("Galactic Binary Frequency (Hz)")
+# plt.ylabel("Mismatch")
+# plt.title("Mismatch between GB templates")
+# plt.legend()
+# plt.grid()
+# plt.tight_layout()
+# plt.savefig(f"gb_mismatch_plot_{T_OBS_DAYS:.1f}days.png", dpi=300)
+# plt.show()

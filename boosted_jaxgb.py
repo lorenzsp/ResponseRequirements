@@ -390,6 +390,7 @@ class JaxGBFull(JaxGB):
         h1: jax.Array,
         h2: jax.Array,
         inv_cov: jax.Array,
+        maximise_phase: bool = False,
     ) -> jax.Array:
         """Phase-maximised mismatch  1 − |<h1|h2>| / √(<h1|h1> <h2|h2>).
 
@@ -400,6 +401,9 @@ class JaxGBFull(JaxGB):
             (stack ``[A, E, T]`` along ``axis=1``).
         inv_cov : jax.Array, shape ``(N_freq, 3, 3)``
             Inverse noise covariance per frequency bin.
+        maximise_phase : bool, optional
+            If True, the inner product is taken in absolute value to maximise
+            over any overall phase offset between the two templates.
 
         Returns
         -------
@@ -411,4 +415,8 @@ class JaxGBFull(JaxGB):
         h1h2 = 4.0 * jnp.einsum("bcf,fcd,bdf->b", h1.conj(), inv_cov, h2) * df
         h1h1 = 4.0 * jnp.einsum("bcf,fcd,bdf->b", h1.conj(), inv_cov, h1).real * df
         h2h2 = 4.0 * jnp.einsum("bcf,fcd,bdf->b", h2.conj(), inv_cov, h2).real * df
-        return 1.0 - jnp.abs(h1h2) / jnp.sqrt(h1h1 * h2h2)
+        if maximise_phase:
+            h1h2 = jnp.abs(h1h2)
+        else:
+            h1h2 = h1h2.real
+        return 1.0 - (h1h2 / jnp.sqrt(h1h1 * h2h2))

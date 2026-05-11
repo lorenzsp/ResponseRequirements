@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 plt.rcParams['text.usetex'] = False
 import healpy as hp
-from lisaorbits import StaticConstellation, ResampledOrbits
+from lisaorbits import StaticConstellation
 
 from lisaconstants import c
 from lisaconstants.indexing import LINKS

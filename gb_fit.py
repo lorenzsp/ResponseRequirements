@@ -112,14 +112,14 @@ thetas, phis = hp.pix2ang(nside, np.arange(npix))
 betas, lambs = np.pi / 2 - thetas, phis
 f0_vec = np.logspace(-4,0.0, num=10)
 
-# temp = mismatch["mismatch_nonrel_vs_rel_with_nominal"]
-temp = mismatch["mismatch_perturbed_vs_nominal_with_rel"]
+temp = mismatch["mismatch_nonrel_vs_rel_with_nominal"]
+# temp = mismatch["mismatch_perturbed_vs_nominal_with_rel"]
 ind = np.unravel_index(np.argmax(temp, axis=None), temp.shape)
 
 injection_source_params = np.array([
             f0_vec[ind[0]],                          # f0 (Hz)
             0.0,                           # fdot (Hz/s) - no evolution
-            1e-20,                         # amplitude (strain)
+            0.31e-18,                         # amplitude (strain)
             betas[ind[1]],                           # ecliptic latitude (rad)
             lambs[ind[1]],                           # ecliptic longitude (rad)
             0.0,                           # polarization (rad)
@@ -128,10 +128,6 @@ injection_source_params = np.array([
 ])
 
 A_nom, E_nom, T_nom = rel_nominal_orbit.get_tdi(jnp.array(injection_source_params), tdi_generation=2.0, tdi_combination="AET")
-test_nominal_orbit.sum_tdi(jnp.repeat(jnp.atleast_2d(injection_source_params),5,axis=0), tdi_generation=2.0, tdi_combination="AET")
-print("Old Jax works")
-rel_nominal_orbit.sum_tdi(jnp.repeat(jnp.atleast_2d(injection_source_params),5,axis=0), tdi_generation=2.0, tdi_combination="AET")
-print("New Jax Works")
 
 kmin = int(np.array(rel_nominal_orbit.get_kmin(injection_source_params[0],injection_source_params[1])))
 kmax = kmin + rel_nominal_orbit.n
@@ -149,75 +145,29 @@ def inner_product(d1, d2, inv_cov):
 # d_inj = snr_fixed * d_inj / SNR_injection
 SNR_injection = inner_product(d_inj, d_inj, inv_cov_AET)**0.5
 print("Injected SNR", SNR_injection)
+
 # injection
 NTEMPS, NWALKERS, NLEAVES_MAX = 8, 32, 1
 d_inj_tot = jnp.repeat(jnp.asarray(d_inj)[None,:,:],NWALKERS*NTEMPS,axis=0)
-
-
-# with h5py.File("./Kupfer_LISA_Gaia/VGB.hdf5", "r") as f:
-#     dataset = f["data"][()]
-#     print("Dataset:", dataset.dtype)
-
-# names = dataset['Name']
-# Amplitude = dataset['Amplitude']
-# Frequency = dataset['Frequency']
-# FrequencyDerivative = dataset['FrequencyDerivative']
-# EclipticLatitude = dataset['EclipticLatitude']
-# EclipticLongitude = dataset['EclipticLongitude']
-# Inclination = dataset['Inclination']
-# Polarization = dataset['Polarization']
-# InitialPhase = dataset['InitialPhase']
-
-# vgb_params = np.stack([Frequency, FrequencyDerivative, Amplitude, EclipticLatitude, EclipticLongitude, Polarization, Inclination, InitialPhase], axis=1)
-# A_vgb, E1_vgb, T1_vgb = rel_nominal_orbit.get_tdi(jnp.array(vgb_params), tdi_generation=2.0, tdi_combination="AET")
-# d_vgb = np.stack([A_vgb, E1_vgb, T1_vgb], axis=1)
-# vgb_snrs = []
-# for el,name in zip(d_vgb, names):
-#     snr = inner_product(el, el, inv_cov_AET)**0.5
-#     vgb_snrs.append(snr)
-#     if Frequency[names == name][0] < 1e-3:
-#         print(f"{name} SNR", snr, "Frequency", Frequency[names == name][0], "Frequency derivative", FrequencyDerivative[names == name][0])
-# mask = np.array(names,dtype=str) == "SDSSJ1235"
-# plt.figure()
-# plt.scatter(Frequency, vgb_snrs, c=FrequencyDerivative, cmap='viridis', label="VGBs")
-# plt.colorbar(label="Frequency Derivative (Hz/s)")
-# plt.xscale('log')
-# plt.yscale('log')
-# plt.xlabel("Frequency (Hz)")
-# plt.ylabel("SNR")
-# plt.show()
-# breakpoint()
 
 test_params = np.repeat(jnp.asarray(injection_source_params)[None,:],NWALKERS*NTEMPS,axis=0)
 dminush = rel_nominal_orbit.get_data_minus_template(jnp.asarray(test_params), d_inj_tot, kmin, kmax, tdi_generation=2.0, tdi_combination="AET")
 
 temp_params = np.zeros((NWALKERS*NTEMPS,injection_source_params.shape[0]))
 def likelihood(params, template_generator, inv_cov, temp_params):
-    n = len(params)
+    temp_params[:len(params)] = params
     return np.asarray(template_generator.log_likelihood(
-        jnp.asarray(params), d_inj_tot[:n], inv_cov, kmin, kmax,
+        jnp.asarray(temp_params), d_inj_tot, inv_cov, kmin, kmax,
         max_batch_size=NTEMPS * NWALKERS,
         tdi_generation=2.0, tdi_combination="AET",
-    ))
-
-
-# # plot A channel for both templates
-# plt.figure()
-# plt.plot(freqs, np.real(A_nom), 'C0-',label="Nominal Orbit")
-# plt.plot(freqs, np.imag(A_nom), 'C2-',label="Nominal Orbit")
-# plt.xlabel("Frequency (Hz)")
-# plt.ylabel("Amplitude")
-# plt.legend()
-# plt.grid()
-# plt.tight_layout()
-# plt.show()
+    ))[:len(params)]
 
 def setup_priors(f0_center, f0_width):
     """Set up prior distributions for galactic binary parameters."""
     
     # Amplitude bounds (based on SNR considerations)
     min_A = 1e-24  # Very faint
-    max_A = 1e-18  # Very bright
+    max_A = 1e-15  # Very bright
     
     # Frequency derivative bounds
     fdot_max = 1e-18  # Hz/s
@@ -270,166 +220,110 @@ def setup_priors(f0_center, f0_width):
 
 priors, periodic, ndims, bounds = setup_priors(injection_source_params[0], 1e-6)
 
+################################# Mismatch ##########################################################
+mismatch_check = True
+if mismatch_check:
+    runs = zip([rel_nominal_orbit, nonrel_nominal_orbit, rel_perturbed_orbit], ['rel', 'nonrel', 'perturbed'])
 
-# runs = zip([rel_nominal_orbit, nonrel_nominal_orbit, rel_perturbed_orbit], ['rel', 'nonrel', 'perturbed'])
-runs = zip([rel_perturbed_orbit], ['perturbed'])
-for template_generator, name in runs:
-    # generate template and check mismatch
-    A, E, T = template_generator.get_tdi(jnp.array(injection_source_params), tdi_generation=2.0, tdi_combination="AET")
-    d_template = np.stack([A, E, T], axis=0)
-    print("Mismatch", float(template_generator.mismatch(d_template[None], d_inj[None], inv_cov_AET)[0]))
+    for template_generator, name in runs:
+        print("===============================")
+        print(f"\nRunning analysis for {name} template...")
+        # generate template and check mismatch
+        A, E, T = template_generator.get_tdi(jnp.array(injection_source_params), tdi_generation=2.0, tdi_combination="AET")
+        d_template = np.stack([A, E, T], axis=0)
+        print("Mismatch at true parameters:", float(template_generator.mismatch(d_template[None], d_inj[None], inv_cov_AET)[0]))
 
-    # check loglike on injection
-    ll_true = likelihood(jnp.atleast_2d(injection_source_params), rel_nominal_orbit, inv_cov_AET, temp_params)
-    ll_pert = likelihood(jnp.atleast_2d(injection_source_params), template_generator, inv_cov_AET, temp_params)
-    print("Loglike true:", ll_true, "loglike pert: ", ll_pert)
+        # check loglike on injection
+        ll_true = likelihood(jnp.atleast_2d(injection_source_params), rel_nominal_orbit, inv_cov_AET, temp_params)
+        ll_pert = likelihood(jnp.atleast_2d(injection_source_params), template_generator, inv_cov_AET, temp_params)
+        print("Loglike true:", ll_true, "loglike pert: ", ll_pert)
 
-    # minimize with differential evolution
-    def neg_ll(x, *args, **kwargs):
-        return - likelihood(x.T, template_generator, inv_cov_AET, temp_params)
+        # minimize with differential evolution
+        def neg_ll(x, *args, **kwargs):
+            return - likelihood(x.T, template_generator, inv_cov_AET, temp_params)
 
-    init = priors["gb"].rvs(size=(NTEMPS*NWALKERS*NLEAVES_MAX))
-    init[0] = injection_source_params
-    print(priors["gb"].logpdf(init)[0])
-    out_de = differential_evolution(neg_ll, init = init, bounds=bounds, disp=True, vectorized=True, maxiter=500, polish=True)
-    best_fit = out_de.x
-    A, E, T = template_generator.get_tdi(jnp.array(best_fit), tdi_generation=2.0, tdi_combination="AET")
-    d_template = np.stack([A, E, T], axis=0)
+        init = priors["gb"].rvs(size=(NTEMPS*NWALKERS*NLEAVES_MAX))
+        init[0] = injection_source_params
+        print(priors["gb"].logpdf(init)[0])
+        out_de = differential_evolution(neg_ll, init = init, bounds=bounds, disp=False, vectorized=True, maxiter=500, polish=True)
+        best_fit = out_de.x
+        A, E, T = template_generator.get_tdi(jnp.array(best_fit), tdi_generation=2.0, tdi_combination="AET")
+        d_template = np.stack([A, E, T], axis=0)
 
-    print("New Mismatch", float(template_generator.mismatch(d_template[None], d_inj[None], inv_cov_AET)[0]))
-    
-    amp_inj = np.abs(d_inj[0])
-    amp_template = np.abs(d_template[0])
-    phase_inj = np.unwrap(np.angle(d_inj[0]))
-    phase_template = np.unwrap(np.angle(d_template[0]))
+        print("Mismatch at best fit:", float(template_generator.mismatch(d_template[None], d_inj[None], inv_cov_AET)[0]))
+        
+        denom = injection_source_params.copy()
+        denom[denom == 0] = 1.0
+        print("Run name:", name, " Relative difference from true:",np.abs(best_fit-injection_source_params)/denom)
 
-    fig, (ax_amp, ax_phase) = plt.subplots(2, 1, sharex=True, figsize=(8, 6))
-    ax_amp.plot(freqs, amp_inj, 'C0-', label="Injection A")
-    ax_amp.plot(freqs, amp_template, 'C2--', label="Best Fit A")
-    ax_amp.set_ylabel("Amplitude")
-    ax_amp.legend()
-    ax_amp.grid()
+################################# MCMC ##########################################################
+template_generator = nonrel_nominal_orbit
+# Create sampler
+sampler = EnsembleSampler(
+    NWALKERS,
+    ndims,
+    likelihood,
+    priors,
+    branch_names=["gb"],
+    args=(template_generator, inv_cov_AET, temp_params),
+    tempering_kwargs=dict(ntemps=NTEMPS),
+    periodic=periodic,
+    vectorize=True,
+    # update_fn=update_fn,
+    # update_iterations=50,
+    backend=f"backend_run.h5",
+)
 
-    ax_phase.plot(freqs, phase_inj, 'C0-', label="Injection A")
-    ax_phase.plot(freqs, phase_template, 'C2--', label="Best Fit A")
-    ax_phase.set_xlabel("Frequency (Hz)")
-    ax_phase.set_ylabel("Phase (rad)")
-    ax_phase.legend()
-    ax_phase.grid()
+# Initialize state
+print("\nInitializing sampler state...")
 
-    plt.tight_layout()
-    plt.savefig(name + '_best_fit.png', dpi=300)
-    print("Run name:", name, " Relative difference from true:",1-best_fit/injection_source_params)
-    continue
+# Draw initial positions from prior
+start_points = {
+    "gb": priors["gb"].rvs(size=(NTEMPS, NWALKERS, NLEAVES_MAX))
+}
 
-    # Create sampler
-    sampler = EnsembleSampler(
-        NWALKERS,
-        ndims,
-        likelihood,
-        priors,
-        branch_names=["gb"],
-        args=(template_generator, inv_cov_AET, temp_params),
-        tempering_kwargs=dict(ntemps=NTEMPS),
-        periodic=periodic,
-        vectorize=True,
-        # update_fn=update_fn,
-        # update_iterations=50,
-        backend=f"backend_run_{name}.h5",
-    )
+# mean = injection_source_params.copy()
+# mean[1] = 1e-20
+# sigma = 1e-20 * mean
+# start_points["gb"] = out_de.population.reshape((NTEMPS, NWALKERS, NLEAVES_MAX, ndims)) # np.random.multivariate_normal(injection_source_params, np.eye(ndims)*sigma, size=(NTEMPS, NWALKERS, NLEAVES_MAX))
+start_points["gb"][:,:,:,1] = priors["gb"].rvs(size=(NTEMPS, NWALKERS, NLEAVES_MAX))[:,:,:,1]
+# start_points["gb"][:,:NWALKERS//2] = priors["gb"].rvs(size=(NTEMPS, NWALKERS//2, NLEAVES_MAX))
+# Initialize with one source active per walker (start conservative)
+start_inds = {
+    "gb": np.zeros((NTEMPS, NWALKERS, NLEAVES_MAX), dtype=bool)
+}
+start_inds["gb"][:, :, 0] = True  # One source active
 
-    # Initialize state
-    print("\nInitializing sampler state...")
-
-    # Draw initial positions from prior
-    start_points = {
-        "gb": priors["gb"].rvs(size=(NTEMPS, NWALKERS, NLEAVES_MAX))
-    }
-
-    mean = injection_source_params.copy()
-    mean[1] = 1e-20
-    sigma = 1e-20 * mean
-    start_points["gb"] = out_de.population.reshape((NTEMPS, NWALKERS, NLEAVES_MAX, ndims)) # np.random.multivariate_normal(injection_source_params, np.eye(ndims)*sigma, size=(NTEMPS, NWALKERS, NLEAVES_MAX))
-    # start_points["gb"][:,:,:,1] = priors["gb"].rvs(size=(NTEMPS, NWALKERS, NLEAVES_MAX))[:,:,:,1]
-    # start_points["gb"][:,:NWALKERS//2] = priors["gb"].rvs(size=(NTEMPS, NWALKERS//2, NLEAVES_MAX))
-    # Initialize with one source active per walker (start conservative)
-    start_inds = {
-        "gb": np.zeros((NTEMPS, NWALKERS, NLEAVES_MAX), dtype=bool)
-    }
-    start_inds["gb"][:, :, 0] = True  # One source active
-
-    start_state = State(start_points)
+start_state = State(start_points)
 
 
-    # Compute initial prior and likelihood
-    lp = sampler.compute_log_prior(start_state.branches_coords)
-    start_state.log_prior = lp
+# Compute initial prior and likelihood
+lp = sampler.compute_log_prior(start_state.branches_coords)
+start_state.log_prior = lp
 
-    ll = sampler.compute_log_like(start_state.branches_coords, logp=lp, inds=start_inds)
-    start_state.log_like = ll[0]
+ll = sampler.compute_log_like(start_state.branches_coords, logp=lp, inds=start_inds)
+start_state.log_like = ll[0]
 
-    print(f"Initial log-likelihood range: [{ll[0].min():.2f}, {ll[0].max():.2f}]")
+print(f"Initial log-likelihood range: [{ll[0].min():.2f}, {ll[0].max():.2f}]")
 
-    # Time the likelihood
-    import time
-    tic = time.time()
-    _ = sampler.compute_log_like(start_state.branches_coords, logp=lp)
-    toc = time.time()
-    print(f"Likelihood evaluation time: {(toc - tic) * 1000:.2f} ms")
+# Time the likelihood
+import time
+tic = time.time()
+_ = sampler.compute_log_like(start_state.branches_coords, logp=lp)
+toc = time.time()
+print(f"Likelihood evaluation time: {(toc - tic) * 1000:.2f} ms")
 
-    # Run MCMC
-    print("\n" + "=" * 60)
-    print("Running MCMC")
-    print("=" * 60)
+# Run MCMC
+print("\n" + "=" * 60)
+print("Running MCMC")
+print("=" * 60)
 
-    n_iterations = 5000
-    print(f"Running {n_iterations} iterations...")
+n_iterations = 5000
+print(f"Running {n_iterations} iterations...")
 
-    sampler.run_mcmc(start_state, n_iterations, progress=True)
+sampler.run_mcmc(start_state, n_iterations, progress=True)
 
-    print("\n" + "=" * 60)
-    print("MCMC Complete!")
-    print("=" * 60)
+print("\n" + "=" * 60)
+print("MCMC Complete!")
+print("=" * 60)
 
-    # Final summary
-    discard = int(n_iterations*0.25)
-    chain = sampler.get_chain(discard=discard)["gb"]
-    inds = sampler.get_inds(discard=discard)["gb"]
-    logl = sampler.get_log_like(discard=discard)
-
-    plt.figure()
-    plt.plot(logl[:,0])
-    plt.xlabel('Iterations')
-    plt.ylabel('LogLike')
-    plt.tight_layout()
-    plt.savefig(name + '_logl.png', dpi=300)
-
-    flat_samp = chain[inds]
-    prior_samp = priors["gb"].rvs(size=10000)
-
-    # labels = ["$f_0$", "$\dot f_0$", ]
-    fig = corner.corner(flat_samp, truths = injection_source_params, weights = np.ones(flat_samp.shape[0])/flat_samp.shape[0], color='C2')
-    fig = corner.corner(prior_samp, fig = fig, truths = injection_source_params, weights = np.ones(prior_samp.shape[0])/prior_samp.shape[0], color='C3')
-    plt.tight_layout()
-    plt.savefig(name + '_corner.png', dpi=300)
-
-# ==================== Old implementations (kept for reference) ====================
-# def inner_product(d1, d2, inv_cov):
-#     return 4 * np.einsum('cs,scd,ds', d1.conj(), inv_cov, d2).real * DF
-#
-# def likelihood(params, template_generator, inv_cov, temp_params):
-#     # use temp_params to have always the same number of input parameters for jitting once
-#     temp_params[:len(params)] = params
-#     # A, E1, T1 = template_generator.get_tdi(jnp.array(temp_params), tdi_generation=2.0, tdi_combination="AET")
-#     d_m_h = template_generator.get_data_minus_template(jnp.asarray(temp_params), d_inj_tot, kmin, kmax, tdi_generation=2.0, tdi_combination="AET")
-#     results = -0.5 * 4 * np.einsum('acs,scd,ads->a', d_m_h.conj(), inv_cov, d_m_h).real * DF
-#     # set to zero again
-#     temp_params *= 0.0
-#     return results[:len(params)]
-#
-# # mismatch before best-fit (loop):
-# #     overlap = inner_product(d_template, d_inj, inv_cov_AET) / (inner_product(d_template, d_template, inv_cov_AET)**0.5 * SNR_injection)
-# #     print("Mismatch", 1 - overlap)
-# # mismatch after best-fit (loop):
-# #     overlap = inner_product(d_template, d_inj, inv_cov_AET) / (inner_product(d_template, d_template, inv_cov_AET)**0.5 * SNR_injection)
-# #     print("New Mismatch", 1 - overlap)
