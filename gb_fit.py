@@ -113,6 +113,7 @@ betas, lambs = np.pi / 2 - thetas, phis
 f0_vec = np.logspace(-4,0.0, num=10)
 
 temp = mismatch["mismatch_nonrel_vs_rel_with_nominal"]
+breakpoint()
 # temp = mismatch["mismatch_perturbed_vs_nominal_with_rel"]
 ind = np.unravel_index(np.argmax(temp, axis=None), temp.shape)
 
@@ -257,73 +258,73 @@ if mismatch_check:
         print("Run name:", name, " Relative difference from true:",np.abs(best_fit-injection_source_params)/denom)
 
 ################################# MCMC ##########################################################
-template_generator = nonrel_nominal_orbit
-# Create sampler
-sampler = EnsembleSampler(
-    NWALKERS,
-    ndims,
-    likelihood,
-    priors,
-    branch_names=["gb"],
-    args=(template_generator, inv_cov_AET, temp_params),
-    tempering_kwargs=dict(ntemps=NTEMPS),
-    periodic=periodic,
-    vectorize=True,
-    # update_fn=update_fn,
-    # update_iterations=50,
-    backend=f"backend_run.h5",
-)
+# template_generator = nonrel_nominal_orbit
+# # Create sampler
+# sampler = EnsembleSampler(
+#     NWALKERS,
+#     ndims,
+#     likelihood,
+#     priors,
+#     branch_names=["gb"],
+#     args=(template_generator, inv_cov_AET, temp_params),
+#     tempering_kwargs=dict(ntemps=NTEMPS),
+#     periodic=periodic,
+#     vectorize=True,
+#     # update_fn=update_fn,
+#     # update_iterations=50,
+#     backend=f"backend_run.h5",
+# )
 
-# Initialize state
-print("\nInitializing sampler state...")
+# # Initialize state
+# print("\nInitializing sampler state...")
 
-# Draw initial positions from prior
-start_points = {
-    "gb": priors["gb"].rvs(size=(NTEMPS, NWALKERS, NLEAVES_MAX))
-}
+# # Draw initial positions from prior
+# start_points = {
+#     "gb": priors["gb"].rvs(size=(NTEMPS, NWALKERS, NLEAVES_MAX))
+# }
 
-# mean = injection_source_params.copy()
-# mean[1] = 1e-20
-# sigma = 1e-20 * mean
-# start_points["gb"] = out_de.population.reshape((NTEMPS, NWALKERS, NLEAVES_MAX, ndims)) # np.random.multivariate_normal(injection_source_params, np.eye(ndims)*sigma, size=(NTEMPS, NWALKERS, NLEAVES_MAX))
-start_points["gb"][:,:,:,1] = priors["gb"].rvs(size=(NTEMPS, NWALKERS, NLEAVES_MAX))[:,:,:,1]
-# start_points["gb"][:,:NWALKERS//2] = priors["gb"].rvs(size=(NTEMPS, NWALKERS//2, NLEAVES_MAX))
-# Initialize with one source active per walker (start conservative)
-start_inds = {
-    "gb": np.zeros((NTEMPS, NWALKERS, NLEAVES_MAX), dtype=bool)
-}
-start_inds["gb"][:, :, 0] = True  # One source active
+# # mean = injection_source_params.copy()
+# # mean[1] = 1e-20
+# # sigma = 1e-20 * mean
+# # start_points["gb"] = out_de.population.reshape((NTEMPS, NWALKERS, NLEAVES_MAX, ndims)) # np.random.multivariate_normal(injection_source_params, np.eye(ndims)*sigma, size=(NTEMPS, NWALKERS, NLEAVES_MAX))
+# start_points["gb"][:,:,:,1] = priors["gb"].rvs(size=(NTEMPS, NWALKERS, NLEAVES_MAX))[:,:,:,1]
+# # start_points["gb"][:,:NWALKERS//2] = priors["gb"].rvs(size=(NTEMPS, NWALKERS//2, NLEAVES_MAX))
+# # Initialize with one source active per walker (start conservative)
+# start_inds = {
+#     "gb": np.zeros((NTEMPS, NWALKERS, NLEAVES_MAX), dtype=bool)
+# }
+# start_inds["gb"][:, :, 0] = True  # One source active
 
-start_state = State(start_points)
+# start_state = State(start_points)
 
 
-# Compute initial prior and likelihood
-lp = sampler.compute_log_prior(start_state.branches_coords)
-start_state.log_prior = lp
+# # Compute initial prior and likelihood
+# lp = sampler.compute_log_prior(start_state.branches_coords)
+# start_state.log_prior = lp
 
-ll = sampler.compute_log_like(start_state.branches_coords, logp=lp, inds=start_inds)
-start_state.log_like = ll[0]
+# ll = sampler.compute_log_like(start_state.branches_coords, logp=lp, inds=start_inds)
+# start_state.log_like = ll[0]
 
-print(f"Initial log-likelihood range: [{ll[0].min():.2f}, {ll[0].max():.2f}]")
+# print(f"Initial log-likelihood range: [{ll[0].min():.2f}, {ll[0].max():.2f}]")
 
-# Time the likelihood
-import time
-tic = time.time()
-_ = sampler.compute_log_like(start_state.branches_coords, logp=lp)
-toc = time.time()
-print(f"Likelihood evaluation time: {(toc - tic) * 1000:.2f} ms")
+# # Time the likelihood
+# import time
+# tic = time.time()
+# _ = sampler.compute_log_like(start_state.branches_coords, logp=lp)
+# toc = time.time()
+# print(f"Likelihood evaluation time: {(toc - tic) * 1000:.2f} ms")
 
-# Run MCMC
-print("\n" + "=" * 60)
-print("Running MCMC")
-print("=" * 60)
+# # Run MCMC
+# print("\n" + "=" * 60)
+# print("Running MCMC")
+# print("=" * 60)
 
-n_iterations = 5000
-print(f"Running {n_iterations} iterations...")
+# n_iterations = 5000
+# print(f"Running {n_iterations} iterations...")
 
-sampler.run_mcmc(start_state, n_iterations, progress=True)
+# sampler.run_mcmc(start_state, n_iterations, progress=True)
 
-print("\n" + "=" * 60)
-print("MCMC Complete!")
-print("=" * 60)
+# print("\n" + "=" * 60)
+# print("MCMC Complete!")
+# print("=" * 60)
 
