@@ -99,9 +99,11 @@ class JaxGBFull(JaxGB):
         t_obs: float = 6.2914560e7,
         t0: float = 0.0,
         n: int = 128,
+        old_implementation: bool = False,  # for testing only
     ) -> None:
         super().__init__(orbits, t_obs=t_obs, t0=t0, n=n)
-        
+        self.old_implementation = old_implementation
+
         self.velocity = (
             self.orbits.compute_velocity(self.t0 + self.tm, [1, 2, 3])
             .swapaxes(0, 1)
@@ -117,6 +119,12 @@ class JaxGBFull(JaxGB):
             .swapaxes(1, 2)
         )  # (3, 3, n)
         self.fstar = c / (self.arm_length * 2 * np.pi)
+        
+        if self.old_implementation:
+            print("WARNING: Using old implementation of JaxGBFull with no velocity corrections. This is for testing purposes only and should not be used for production runs.")
+            ltt = self._get_ltt_simple()
+            self.arm_length = ltt * c
+            self.fstar = c / (self.arm_length * 2 * np.pi)
 
     # ------------------------------------------------------------------
 
@@ -149,13 +157,14 @@ class JaxGBFull(JaxGB):
         nsrc = len(f0_fdot_phi0)
 
         # ── Arm unit vectors ──────────────────────────────────────────────────
-        # r convention: [r_12, r_13, r_23, r_31]  (identical to parent)
-        # r = jnp.zeros((4, 3, self.n))
-        # r = r.at[0].set(self.position[1] - self.position[0])
-        # r = r.at[1].set(self.position[2] - self.position[0])
-        # r = r.at[2].set(self.position[2] - self.position[1])
-        # r = r.at[3].set(-r[1])
-        # r /= self.arm_length
+        if self.old_implementation:
+            # r convention: [r_12, r_13, r_23, r_31]  (identical to parent)
+            r = jnp.zeros((4, 3, self.n))
+            r = r.at[0].set(self.position[1] - self.position[0])
+            r = r.at[1].set(self.position[2] - self.position[0])
+            r = r.at[2].set(self.position[2] - self.position[1])
+            r = r.at[3].set(-r[1])
+            r /= self.arm_length
         
         # # option 1
         # # MOSAS = np.array([12, 23, 31, 13, 32, 21])
@@ -165,12 +174,13 @@ class JaxGBFull(JaxGB):
         # r = r.at[2].set((self.position[2] - self.position[1])/(self.ltts[:,1] * c))
         # r = r.at[3].set(-r[1]/(self.ltts[:,2] * c))
         
-        # option 2
-        r = jnp.zeros((4, 3, self.n))
-        r = r.at[0].set((self.position[1] - self.position[0])/np.linalg.norm(self.position[1] - self.position[0], axis=0))
-        r = r.at[1].set((self.position[2] - self.position[0])/np.linalg.norm(self.position[2] - self.position[0], axis=0))
-        r = r.at[2].set((self.position[2] - self.position[1])/np.linalg.norm(self.position[2] - self.position[1], axis=0))
-        r = r.at[3].set(-r[1]/np.linalg.norm(self.position[1] - self.position[0], axis=0) / c)
+        # New implementation that normalizes the unit vectors
+        else:
+            r = jnp.zeros((4, 3, self.n))
+            r = r.at[0].set((self.position[1] - self.position[0])/np.linalg.norm(self.position[1] - self.position[0], axis=0))
+            r = r.at[1].set((self.position[2] - self.position[0])/np.linalg.norm(self.position[2] - self.position[0], axis=0))
+            r = r.at[2].set((self.position[2] - self.position[1])/np.linalg.norm(self.position[2] - self.position[1], axis=0))
+            r = r.at[3].set(-r[1])
 
         # print("Mean relative difference", np.mean(self.arm_length/(self.ltts[:,0] * c)-1))
 

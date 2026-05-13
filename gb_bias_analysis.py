@@ -24,7 +24,7 @@ print(f"Available devices: {jax.devices()}")
 
 # ==================== Observation Configuration ====================
 
-T_OBS_DAYS  = 14.0
+T_OBS_DAYS  = 15.0
 TMAX        = T_OBS_DAYS * 24 * 3600
 N_FREQ_BINS = 128
 T0          = 0.0
@@ -154,7 +154,7 @@ for i_f, f0 in enumerate(f0_vec):
         beta_inj,  # ecliptic latitude (rad)
         lamb_inj,  # ecliptic longitude (rad)
         0.0,       # polarization (rad)
-        np.pi/3,       # inclination (rad)
+        0.0,       # inclination (rad)
         0.0,       # initial phase (rad)
     ])
     results["true_params"][i_f] = true_params
