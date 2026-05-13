@@ -1,8 +1,10 @@
 # ResponseRequirements
 
+![LISA orbits](lisa_orbit.png)
+
 ## Overview
 
-This repository contains computational tools for quantifying **uncertainties and mismodeling** in the gravitational wave response of the **Laser Interferometer Space Antenna (LISA)**—a space-based gravitational wave observatory planned for the mid-2030s.
+This repository contains computational tools for quantifying **uncertainties and mismodeling** in the gravitational wave response of the **Laser Interferometer Space Antenna (LISA)**—a space-based gravitational wave observatory planned for the mid-2030s. If you use this code or data in your research, please cite the [accompanying paper](#citation).
 
 ### Key Research Questions
 
@@ -10,16 +12,6 @@ This repository contains computational tools for quantifying **uncertainties and
 
 2. **Response Mismodeling**: What is the impact of neglecting spacecraft velocity-dependent terms in the response kernel on parameter estimation and source localization?
 
-### Main Contributions
-
-- Comprehensive waveform **mismatch analysis** across frequency, sky position, and polarization
-- Comparison of **static toy constellation** models with realistic **evolving orbits** from mission-representative orbit-determination simulations
-- Validation using **galactic binary inference** to quantify parameter bias and localization errors
-- High-performance implementations in JAX for fast response calculations
-
-The code leverages ESA's **GODOT** astrodynamics library and **MIDAS** orbit-determination package to generate realistic spacecraft trajectories, then evaluates mismatches between responses computed with nominal and perturbed orbital parameters.
-
-![LISA orbits](lisa_orbit.png)
 
 ## Installation
 Follow these steps to set up the project on your local machine:
