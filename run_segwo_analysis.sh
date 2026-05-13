@@ -21,28 +21,4 @@ echo "=== [3/6] Computing: evolving orbits at t=0 days ==="
 python run_analysis.py --run_flag evolving --time_eval 0 --boost_flag 0
 python run_analysis.py --run_flag evolving --time_eval 0 --boost_flag 1
 
-# ---------------------------------------------------------------------------
-# PLOT
-# ---------------------------------------------------------------------------
-# echo ""
-# echo "=== [5/6] Plotting: static ==="
-# python plot_analysis.py --results_dir segwo_results/static/arm0.0_rot0.0_trans50000.0_boost1.0/ 
-# python plot_analysis.py --results_dir segwo_results/static/arm1_rot0.0_trans0.0_boost1.0/
-# python plot_analysis.py --results_dir segwo_results/static/arm0.0_rot50000.0_trans0.0_boost1.0/ 
-
-# echo ""
-# echo "=== [5b] Plotting: evolving at t=15 days ==="
-# python plot_analysis.py --results_dir "segwo_results/15.0days_evolving_boost0.0/"
-# python plot_analysis.py --results_dir "segwo_results/15.0days_evolving_boost1.0/"
-
-# echo ""
-# echo "=== [5c] Plotting: evolving at t=0 days ==="
-# python plot_analysis.py --results_dir "segwo_results/0.0days_evolving_boost0.0/"
-# python plot_analysis.py --results_dir "segwo_results/0.0days_evolving_boost1.0/"
-
-# # echo ""
-# # echo "=== [6/6] Plotting: response evolution ==="
-# # python plot_evolution.py --data_file segwo_results/evolution_data.h5 --output_dir .
-
-# echo ""
-# echo "All done."
+echo "All done."
