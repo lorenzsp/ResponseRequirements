@@ -19,7 +19,7 @@ This repository contains computational tools for quantifying **uncertainties and
 
 The code leverages ESA's **GODOT** astrodynamics library and **MIDAS** orbit-determination package to generate realistic spacecraft trajectories, then evaluates mismatches between responses computed with nominal and perturbed orbital parameters.
 
-![LISA orbits](reproduce_plots/figures/lisa_orbit.png)
+![LISA orbits](lisa_orbit.png)
 
 ## Installation
 Follow these steps to set up the project on your local machine:
