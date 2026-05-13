@@ -10,7 +10,7 @@ This repository contains computational tools for quantifying **uncertainties and
 
 1. **Orbit Uncertainties**: How do uncertainties in spacecraft positions and velocities (determined via ground-based radiometric tracking) propagate into the gravitational wave response?
 
-2. **Response Mismodeling**: What is the impact of neglecting spacecraft velocity-dependent terms in the response kernel on parameter estimation and source localization?
+2. **Response Mismodeling**: What is the impact of neglecting spacecraft velocity-dependent terms in the response kernel on parameter estimation and source localization? Check out [the paper deriving the boosted response](https://arxiv.org/pdf/2509.10038) for the details.
 
 
 ## Installation
