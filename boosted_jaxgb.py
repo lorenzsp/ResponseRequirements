@@ -157,9 +157,9 @@ class JaxGBFull(JaxGB):
         nsrc = len(f0_fdot_phi0)
 
         # ── Arm unit vectors ──────────────────────────────────────────────────
+        r = jnp.zeros((4, 3, self.n))
         if self.old_implementation:
             # r convention: [r_12, r_13, r_23, r_31]  (identical to parent)
-            r = jnp.zeros((4, 3, self.n))
             r = r.at[0].set(self.position[1] - self.position[0])
             r = r.at[1].set(self.position[2] - self.position[0])
             r = r.at[2].set(self.position[2] - self.position[1])
@@ -176,7 +176,6 @@ class JaxGBFull(JaxGB):
         
         # New implementation that normalizes the unit vectors
         else:
-            r = jnp.zeros((4, 3, self.n))
             r = r.at[0].set((self.position[1] - self.position[0])/np.linalg.norm(self.position[1] - self.position[0], axis=0))
             r = r.at[1].set((self.position[2] - self.position[0])/np.linalg.norm(self.position[2] - self.position[0], axis=0))
             r = r.at[2].set((self.position[2] - self.position[1])/np.linalg.norm(self.position[2] - self.position[1], axis=0))

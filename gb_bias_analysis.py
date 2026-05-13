@@ -77,7 +77,7 @@ betas, lambs = np.pi / 2 - thetas, phis
 
 # ==================== Load mismatch map ====================
 
-MISMATCH_FILE = "gb_mismatch_maxphi_results_15.0days.h5"
+MISMATCH_FILE = "data/gb_mismatch_results_15.0days.h5"
 MISMATCH_KEY  = "mismatch_nonrel_vs_rel_with_nominal"
 
 with h5py.File(MISMATCH_FILE, "r") as f:
@@ -150,12 +150,12 @@ for i_f, f0 in enumerate(f0_vec):
     true_params = np.array([
         f0,        # f0 (Hz)
         0.0,       # fdot (Hz/s)
-        0.31e-18,  # amplitude (strain)
+        3.726536757249243e-19,  # amplitude (strain)
         beta_inj,  # ecliptic latitude (rad)
         lamb_inj,  # ecliptic longitude (rad)
-        0.0,       # polarization (rad)
-        0.0,       # inclination (rad)
-        0.0,       # initial phase (rad)
+        np.pi/3,       # polarization (rad)
+        np.pi/3,       # inclination (rad)
+        np.pi/3,       # initial phase (rad)
     ])
     results["true_params"][i_f] = true_params
 

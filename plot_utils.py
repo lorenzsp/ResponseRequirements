@@ -52,8 +52,8 @@ def plot_orbit_3d(orbital_info, T, figsize=(8, 4.5), Nshow=10, lam=None, beta=No
     sc3 = sc3 - const_center * 0.9
     
     ax.plot(*sc1.T, color='tab:blue', linewidth=1, alpha=0.5, linestyle='-')
-    ax.plot(*sc2.T, color='tab:orange', linewidth=1, alpha=0.5, linestyle='-.')
-    ax.plot(*sc3.T, color='tab:green', linewidth=1, alpha=0.5, linestyle='--')
+    ax.plot(*sc2.T, color='tab:orange', linewidth=1, alpha=0.5, linestyle='-')
+    ax.plot(*sc3.T, color='tab:green', linewidth=1, alpha=0.5, linestyle='-')
     
     # plot laser
     for i in range(len(sc1)):

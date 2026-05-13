@@ -39,7 +39,7 @@ print(f"Available devices: {jax.devices()}")
 # ==================== Observation Configuration ====================
 
 # Observation parameters
-T_OBS_DAYS = 365                      # Observation time in days
+T_OBS_DAYS = 365.                      # Observation time in days
 TMAX = T_OBS_DAYS * 24 * 3600          # Observation time in seconds
 N_FREQ_BINS = 128                       # Number of frequency bins for heterodyned response
 T0 = 0.0                                  # Start time (seconds)
@@ -98,7 +98,7 @@ rel_perturbed_orbit = JaxGBFull(orbits=perturbed_orbits, t_obs=TMAX, t0=T0, n=N_
 # test
 # b'SDSSJ1337' SNR 12.407709826733793 Frequency 0.0003365330899526027 Frequency derivative 1.856006058763817e-20
 
-output_file = "gb_mismatch_maxphi_results_15.0days.h5"
+output_file = "data/gb_mismatch_results_15.0days.h5"
 mismatch = {}
 with h5py.File(output_file, "r") as f:
     f0_vec = f["f0_vec"][()]
@@ -114,7 +114,7 @@ f0_vec = np.logspace(-4,0.0, num=10)
 
 temp = mismatch["mismatch_nonrel_vs_rel_with_nominal"]
 # Lowest frequency, worst sky location at that frequency
-i_f = 0
+i_f = 3
 sky_ind = np.argmax(temp, axis=1)[i_f]
 ind = (i_f, sky_ind)
 print(f"Injection: f0_vec[{i_f}] = {f0_vec[i_f]:.4e} Hz, sky_ind = {sky_ind}, mismatch = {temp[i_f, sky_ind]:.6f}")
@@ -122,7 +122,7 @@ print(f"Injection: f0_vec[{i_f}] = {f0_vec[i_f]:.4e} Hz, sky_ind = {sky_ind}, mi
 injection_source_params = np.array([
             f0_vec[ind[0]],                          # f0 (Hz)
             0.0,                           # fdot (Hz/s) - no evolution
-            1.302462733272121e-19,                         # amplitude (strain)
+            3.028356880283817e-22,                         # amplitude (strain), f=1e-4 -> 5.292828750112632e-19
             betas[ind[1]],                           # ecliptic latitude (rad)
             lambs[ind[1]],                           # ecliptic longitude (rad)
             np.pi/3,                           # polarization (rad)
@@ -150,7 +150,7 @@ SNR_injection = inner_product(d_inj, d_inj, inv_cov_AET)**0.5
 print("Injected SNR", SNR_injection)
 
 # injection
-NTEMPS, NWALKERS, NLEAVES_MAX = 4, 32, 1
+NTEMPS, NWALKERS, NLEAVES_MAX = 8, 64, 1
 d_inj_tot = jnp.repeat(jnp.asarray(d_inj)[None,:,:],NWALKERS*NTEMPS,axis=0)
 
 test_params = np.repeat(jnp.asarray(injection_source_params)[None,:],NWALKERS*NTEMPS,axis=0)
@@ -165,12 +165,12 @@ def likelihood(params, template_generator, inv_cov, temp_params):
         tdi_generation=2.0, tdi_combination="AET",
     ))[:len(params)]
 
-def setup_priors(f0_center, f0_width):
+def setup_priors(f0_center, f0_width, A_center=1e-18):
     """Set up prior distributions for galactic binary parameters."""
     
     # Amplitude bounds (based on SNR considerations)
-    min_A = 1e-22  # Very faint
-    max_A = 1e-18  # Very bright
+    min_A = A_center * 10.0  # Very faint
+    max_A = A_center / 10.0  # Very bright
     
     # Frequency derivative bounds
     fdot_max = 1e-18  # Hz/s
@@ -221,7 +221,7 @@ def setup_priors(f0_center, f0_width):
     
     return priors, periodic, ndims, bounds
 
-priors, periodic, ndims, bounds = setup_priors(injection_source_params[0], 1e-6)
+priors, periodic, ndims, bounds = setup_priors(injection_source_params[0], 1e-6, A_center=injection_source_params[2])
 
 ################################# Mismatch check at true params ##########################################################
 print("\n" + "=" * 60)
@@ -237,6 +237,9 @@ print(f"Loglike (nonrel template, true params): {ll_nonrel[0]:.4f}")
 ################################# MCMC ##########################################################
 # Template: non-relativistic model; injection: relativistic model
 template_generator = nonrel_nominal_orbit
+backend_name = f"data/backend_run_nonrel_{T_OBS_DAYS}days_SNR{SNR_injection:.2f}_f{injection_source_params[0]:.2e}.h5"
+# template_generator = rel_nominal_orbit
+# backend_name = f"data/backend_run_rel_{T_OBS_DAYS}days_SNR{SNR_injection:.2f}_f{injection_source_params[0]:.2e}.h5"
 
 # Create sampler
 sampler = EnsembleSampler(
@@ -249,7 +252,7 @@ sampler = EnsembleSampler(
     tempering_kwargs=dict(ntemps=NTEMPS),
     periodic=periodic,
     vectorize=True,
-    backend=f"backend_run_nonrel_{T_OBS_DAYS}days.h5",
+    backend=backend_name,
 )
 
 # Initialize state
@@ -264,6 +267,10 @@ start_inds = {
     "gb": np.zeros((NTEMPS, NWALKERS, NLEAVES_MAX), dtype=bool)
 }
 start_inds["gb"][:, :, 0] = True  # One source active per walker
+# start_points["gb"][0, 0, 0] = injection_source_params.copy()  # Start at true params for testing
+# start_points["gb"][0, 1, 0] = injection_source_params.copy()  # Start at true params for testing
+# start_points["gb"][0, 1, 0][5] += 0.5  # Start with wrong amplitude for testing
+# start_points["gb"][0, 2, 0] = injection_source_params.copy()  # Start at true params for testing
 
 start_state = State(start_points)
 
@@ -283,12 +290,12 @@ _ = sampler.compute_log_like(start_state.branches_coords, logp=lp)
 toc = time.time()
 print(f"Likelihood evaluation time: {(toc - tic) * 1000:.2f} ms")
 
-# Run MCMC
-print("\n" + "=" * 60)
-print("Running MCMC  [injection: rel_nominal | template: nonrel_nominal]")
-print("=" * 60)
+# # Run MCMC
+# print("\n" + "=" * 60)
+# print("Running MCMC  [injection: rel_nominal | template: nonrel_nominal]")
+# print("=" * 60)
 
-n_iterations = 10000
+n_iterations = 5000
 print(f"Running {n_iterations} iterations...")
 
 sampler.run_mcmc(start_state, n_iterations, progress=True)

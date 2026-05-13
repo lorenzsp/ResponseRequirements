@@ -167,9 +167,9 @@ else:
             1e-20,                         # amplitude (strain)
             0.5,                           # ecliptic latitude (rad)
             2.0,                           # ecliptic longitude (rad)
-            0.0,                           # polarization (rad)
-            0.0,                           # inclination (rad)
-            0.0,                           # initial phase (rad)
+            np.pi/3,                           # polarization (rad)
+            np.pi/3,                           # inclination (rad)
+            np.pi/3,                           # initial phase (rad)
         ], dtype=float)
         
         
