@@ -29,7 +29,7 @@ print(f"Available devices: {jax.devices()}")
 # ==================== Observation Configuration ====================
 
 # Observation parameters
-T_OBS_DAYS = 15.0 * 1.0                      # Observation time in days
+T_OBS_DAYS = 365.0 * 1.0                      # Observation time in days
 TMAX = T_OBS_DAYS * 24 * 3600          # Observation time in seconds
 N_FREQ_BINS = 128                       # Number of frequency bins for heterodyned response
 T0 = 0.0                                  # Start time (seconds)
@@ -181,8 +181,7 @@ else:
             print(f"  Analyzing {key}...")
             A_nom, E1_nom, T1_nom = template_generators[key][0].get_tdi(jnp.array(source_params), tdi_generation=2.0, tdi_combination="AET")
             A_perturb, E1_perturb, T1_perturb = template_generators[key][1].get_tdi(jnp.array(source_params), tdi_generation=2.0, tdi_combination="AET")
-            
-            kmin = int(np.array(template_generators[key][0].get_kmin(source_params[0,0],source_params[0,1])))
+            kmin = int(np.array(template_generators[key][0].get_kmin(source_params[0, 0])))
 
             freqs = DF * (np.arange(N_FREQ_BINS) + kmin)
             

@@ -26,9 +26,9 @@ Follow these steps to set up the project on your local machine:
 2. **Install dependencies**:
     Ensure you have conda installed. Then run:
     ```bash
-    conda create -n lisa_resp -c conda-forge gcc_linux-64 gxx_linux-64 python=3.12
-    conda activate lisa_resp
-    pip install lisaorbits lisaconstants pytdi tqdm numpy Cython scipy jupyter ipython h5py matplotlib tqdm healpy corner eryn
+    conda create -n resp -c conda-forge -y python=3.12
+    conda activate resp
+    pip install lisaorbits lisaconstants pytdi tqdm numpy Cython scipy jupyter ipython h5py matplotlib tqdm healpy corner eryn segwo jaxgb
     ```
 
 ## Running Analysis
@@ -45,11 +45,11 @@ This script runs:
 - **Mismatch computation** across frequency and sky
 
 The run the analysis workflow for the galactic binary response model use:
+```bash
+bash run_gb_analysis.sh
+```
 
-- `gb_bias_analysis.py` — Differential evolution optimization to study parameter bias under model mismatch
-- `gb_fit.py` — MCMC inference comparing relativistic vs. non-relativistic response templates
-- `test_nonrel_models.py` — Validation of differences between old and new response models
-- `PaperPlots.ipynb` — Publication figure generation once the results are generated
+Once the results are generated, you can use `PaperPlots.ipynb` for generating the figures.
 
 ## Reproducing Publication Figures
 

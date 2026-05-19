@@ -135,6 +135,10 @@ perturbation_params = [
      "armlength_error": 0.0,
      "rotation_error": 0.0,
      "translation_error": 50e3},
+    {"arm_lengths": [2.5e9, 2.5e9, 2.5e9],
+     "armlength_error": 0.3,
+     "rotation_error": 50e3 * 3e-3,
+     "translation_error": 10e3},
 ]
 
 if run_flag == 'evolving':
@@ -142,7 +146,7 @@ if run_flag == 'evolving':
     std_time   = f"{array_ltts[0] / 86400}days_"
     output_dirs = [f"segwo_results/{std_time}"]
 else:
-    output_dirs = ["segwo_results/", "segwo_results/", "segwo_results/"]
+    output_dirs = ["segwo_results/", "segwo_results/", "segwo_results/", "segwo_results/"]
 
 # ---------------------------------------------------------------------------
 # Main loop over perturbation cases
@@ -213,20 +217,19 @@ for output_dir, params in zip(output_dirs, perturbation_params):
         * np.abs(strain2x_nominal * np.conj(strain2x_nominal))
     )
     mask = denom > 0.0
-    rel_amp = np.zeros_like(strain2x_perturbed, dtype=float)
-    phase_diff = np.zeros_like(strain2x_perturbed, dtype=float)
-    phase_diff[mask] += np.abs(1-np.real(strain2x_perturbed * np.conj(strain2x_nominal))[mask]/denom[mask])
-    rel_amp[mask] += np.abs(np.abs(strain2x_perturbed) - np.abs(strain2x_nominal))[mask] / np.sqrt(denom[mask])
     
-    strain2x_abs_error   = np.max(rel_amp, axis=0)   # (F, P, 3, 2)
+    rel_amp = np.zeros_like(strain2x_perturbed, dtype=float)
+    rel_amp[mask] += np.abs(1-np.abs(strain2x_perturbed) / np.abs(strain2x_nominal))[mask]
+    
+    avg_rel_amp = np.zeros_like(strain2x_perturbed, dtype=float)
+    avg_rel_amp[mask] += (np.abs(np.abs(strain2x_perturbed) - np.abs(strain2x_nominal)) / (np.average(np.abs(strain2x_perturbed), axis=2)[:, :, np.newaxis, :, :]))[mask]
+    
+    phase_diff = np.zeros_like(strain2x_perturbed, dtype=float)
+    phase_diff[mask] += np.abs(np.angle(strain2x_perturbed) - np.angle(strain2x_nominal))[mask]
+    
     strain2x_angle_error = np.max(phase_diff,        axis=0)   # (F, P, 3, 2)
-
-    amp_violation_ratio, phase_violation_ratio = compute_violation_ratios(
-        strain2x_abs_error, strain2x_angle_error,
-        amp_req=1e-4, phase_req=1e-2,
-    )
-    # print(f"  Amplitude violation ratio : {amp_violation_ratio:.4f}")
-    # print(f"  Phase    violation ratio  : {phase_violation_ratio:.4f}")
+    strain2x_abs_error   = np.max(rel_amp, axis=0)   # (F, P, 3, 2)
+    strain2x_avg_rel_amp_error   = np.max(avg_rel_amp, axis=0)   # (F, P, 3, 2)
     
     # --- Save to HDF5 ---
     hdf5_path = os.path.join(output_dir, "results.h5")
@@ -261,8 +264,6 @@ for output_dir, params in zip(output_dirs, perturbation_params):
         
         # Perturbed samples
         pert = hf.create_group("perturbed")
-        # pert.create_dataset("ltts",               data=perturbed_ltt)
-        # pert.create_dataset("positions",          data=perturbed_positions)
         pert.create_dataset("ltt_residuals",      data=ltt_residuals)
         pert.create_dataset("position_residuals", data=position_residuals)
         barycenter_per = np.mean(perturbed_positions,axis=1)
@@ -275,9 +276,8 @@ for output_dir, params in zip(output_dirs, perturbation_params):
         err = hf.create_group("errors")
         err.create_dataset("strain2x_abs_error",   data=strain2x_abs_error)
         err.create_dataset("strain2x_angle_error", data=strain2x_angle_error)
+        err.create_dataset("strain2x_avg_rel_amp_error", data=strain2x_avg_rel_amp_error)
         err.create_dataset("mismatch", data=mismatch)
-        err.attrs["amp_violation_ratio"]   = amp_violation_ratio
-        err.attrs["phase_violation_ratio"] = phase_violation_ratio
         angle = (2*np.abs(1-np.sum(normal_nom * normal_per,axis=1)))**0.5 # = 1 - cos phi = phi^2/2
         err.create_dataset("angle", data=angle)
 
@@ -293,9 +293,3 @@ for output_dir, params in zip(output_dirs, perturbation_params):
     plt.title('Mismatch between boosted and non-boosted response')
     
     plt.savefig(os.path.join(output_dir, "mismatch_boost.png"))
-    # Keep the legacy text summary for quick inspection
-    np.savetxt(
-        os.path.join(output_dir, "strain2x_errors.txt"),
-        np.array([phase_violation_ratio, amp_violation_ratio]),
-        header="Phase violation ratio | Amplitude violation ratio",
-    )

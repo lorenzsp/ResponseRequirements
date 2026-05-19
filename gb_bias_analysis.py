@@ -24,7 +24,7 @@ print(f"Available devices: {jax.devices()}")
 
 # ==================== Observation Configuration ====================
 
-T_OBS_DAYS  = 15.0
+T_OBS_DAYS  = 365.0
 TMAX        = T_OBS_DAYS * 24 * 3600
 N_FREQ_BINS = 128
 T0          = 0.0
@@ -150,7 +150,7 @@ for i_f, f0 in enumerate(f0_vec):
     true_params = np.array([
         f0,        # f0 (Hz)
         0.0,       # fdot (Hz/s)
-        3.726536757249243e-19,  # amplitude (strain)
+        3.028356880283817e-22,  # amplitude (strain)
         beta_inj,  # ecliptic latitude (rad)
         lamb_inj,  # ecliptic longitude (rad)
         np.pi/3,       # polarization (rad)
@@ -160,7 +160,7 @@ for i_f, f0 in enumerate(f0_vec):
     results["true_params"][i_f] = true_params
 
     # ---------- frequency-bin setup ----------
-    kmin  = int(np.array(rel_model.get_kmin(f0, 0.0)))
+    kmin  = int(np.array(rel_model.get_kmin(f0)))
     kmax  = kmin + N_FREQ_BINS
     freqs = DF * (np.arange(N_FREQ_BINS) + kmin)
 

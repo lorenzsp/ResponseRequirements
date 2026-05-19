@@ -9,15 +9,6 @@ import scipy.interpolate
 from lisaconstants.indexing import LINKS
 from lisaconstants.indexing import SPACECRAFT as SC
 
-# Plotting functions live in plot_utils; re-exported here for backward compatibility.
-from plot_utils import (  # noqa: F401
-    plot_response,
-    plot_strain_errors,
-    plot_gw_response_maps,
-    plot_ltt_residuals_histogram,
-    plot_position_residuals_histogram,
-)
-
 from pytdi.core import LISATDICombination
 from pytdi.michelson import X2_ETA, Y2_ETA, Z2_ETA
 
