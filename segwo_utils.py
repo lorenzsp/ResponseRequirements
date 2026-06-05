@@ -622,7 +622,7 @@ if __name__ == "__main__":
     print("should be consistent with", 50e3 * np.sqrt(2))
 
 
-def get_static_variation(arm_lengths, armlength_error, rotation_error, translation_error, rot_fac = 2.127):
+def get_static_variation(arm_lengths, armlength_error, rotation_error, translation_error, rot_fac = 2.1213203435596424):
     """ Apply perturbations to the static orbits 
     
     We want to create a situation where the armlengths are known very well, but the
@@ -642,6 +642,8 @@ def get_static_variation(arm_lengths, armlength_error, rotation_error, translati
         Standard deviation of the rotation to apply to the spacecraft positions, in equivalent meters of displacement.
     translation_error : float
         Standard deviation of the translation to apply to the spacecraft positions, in meters.
+    rot_fac : float
+        3/np.sqrt(2)
 
     """
     # Create new orbits with perturbed armlengths
@@ -659,14 +661,9 @@ def get_static_variation(arm_lengths, armlength_error, rotation_error, translati
     axis /= np.linalg.norm(axis)  # Normalize the axis
 
     # Average distance of the spacecraft from the center of mass
-    avg_distance = np.mean(np.linalg.norm(perturbed_ltt_orbits.sc_positions, axis=1))
+    avg_distance = np.mean(np.linalg.norm(perturbed_ltt_orbits.sc_positions, axis=-1))
 
     # In the small angle approximation, the rotation by an angle phi causes a displacement
-    # of the spacecraft positions by a distance d = r * phi. Solving for phi and using d = error_magnitude gives
-    # phi = d / r
-    # TODO: improve on the math here; not all rotations affect all S/C, so this is
-    # off by a factor of 2 or so; for now just fitted by hand
-    # angle = rot_fac * rotation_error / avg_distance
     angle_std = rot_fac * rotation_error / avg_distance
 
     angle = np.random.normal(0, angle_std)
@@ -689,3 +686,53 @@ def get_static_variation(arm_lengths, armlength_error, rotation_error, translati
     perturbed_orbits = StaticConstellation(perturbed_positions[0], perturbed_positions[1], perturbed_positions[2])
     return perturbed_orbits
 
+
+def compute_orientation(positions):
+    """
+    Compute yaw, tilt (pitch), and roll of a LISA-like triangular constellation
+    as a function of time.
+
+    Parameters
+    ----------
+    positions : np.ndarray, shape (T, 3, 3)
+        positions[:, 0, :] = SC1(t)  — shape (T, 3)
+        positions[:, 1, :] = SC2(t)  — shape (T, 3)
+        positions[:, 2, :] = SC3(t)  — shape (T, 3)
+
+    Returns
+    -------
+    yaw   : np.ndarray, shape (T,)  — radians
+    tilt  : np.ndarray, shape (T,)  — radians
+    roll  : np.ndarray, shape (T,)  — radians
+    """
+    positions = np.asarray(positions)                     # (T, 3, 3)
+    assert positions.ndim == 3 and positions.shape[1:] == (3, 3), \
+        f"Expected shape (T, 3, 3), got {positions.shape}"
+
+    SC1 = positions[:, 0, :]   # (T, 3)
+    SC2 = positions[:, 1, :]   # (T, 3)
+    SC3 = positions[:, 2, :]   # (T, 3)
+
+    # --- primary axis: SC1 → SC2 ---
+    ex = SC2 - SC1                                        # (T, 3)
+    ex /= np.linalg.norm(ex, axis=1, keepdims=True)
+
+    # --- normal to constellation plane ---
+    ez = np.cross(SC2 - SC1, SC3 - SC1)                  # (T, 3)
+    ez /= np.linalg.norm(ez, axis=1, keepdims=True)
+
+    # --- complete right-hand frame ---
+    ey = np.cross(ez, ex)                                 # (T, 3)
+
+    # --- rotation matrix R[:,i,j], columns = [ex, ey, ez] ---
+    R = np.stack([ex, ey, ez], axis=2)                   # (T, 3, 3)
+
+    # --- ZYX Euler extraction (vectorised) ---
+    # clamp for numerical safety
+    sin_pitch = np.clip(-R[:, 2, 0], -1.0, 1.0)
+
+    yaw  = np.arctan2( R[:, 1, 0],  R[:, 0, 0])
+    tilt = np.arcsin(sin_pitch)
+    roll = np.arctan2( R[:, 2, 1],  R[:, 2, 2])
+
+    return yaw, tilt, roll

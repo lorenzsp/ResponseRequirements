@@ -88,4 +88,4 @@ If you use this code or data in your research, please cite the following paper:
 ```
 
 ## Contact
-For questions or feedback, please contact [Lorenzo Speri](https://github.com/lorenzsp).
+For questions or feedback, please contact [Lorenzo Speri](https://github.com/lorenzsp) or raise an issue.

@@ -25,7 +25,7 @@ from lisaconstants import c
 from lisaconstants.indexing import LINKS
 from pytdi.michelson import X2_ETA, Y2_ETA, Z2_ETA
 
-from segwo_utils import (InterpolatedOrbits, compute_strain2x, compute_covariance, compute_violation_ratios, get_static_variation)
+from segwo_utils import (InterpolatedOrbits, compute_strain2x, compute_covariance, compute_violation_ratios, get_static_variation, compute_orientation)
 
 np.random.seed(2601)
 
@@ -261,6 +261,7 @@ for output_dir, params in zip(output_dirs, perturbation_params):
         sc2_sc3_nom = positions[:,1] - positions[:,2]
         normal_nom = np.linalg.cross(sc2_sc3_nom, sc1_sc2_nom)
         normal_nom = normal_nom/np.linalg.norm(normal_nom,axis=1)[:,None]
+        yaw_nom, tilt_nom, roll_nom = compute_orientation(positions)
         
         # Perturbed samples
         pert = hf.create_group("perturbed")
@@ -271,7 +272,8 @@ for output_dir, params in zip(output_dirs, perturbation_params):
         sc2_sc3_per = perturbed_positions[:,1] - perturbed_positions[:,2]
         normal_per = np.linalg.cross(sc2_sc3_per, sc1_sc2_per)
         normal_per = normal_per/np.linalg.norm(normal_per,axis=1)[:,None]
-
+        yaw_per, tilt_per, roll_per = compute_orientation(perturbed_positions)
+        
         # Error metrics
         err = hf.create_group("errors")
         err.create_dataset("strain2x_abs_error",   data=strain2x_abs_error)
@@ -281,7 +283,10 @@ for output_dir, params in zip(output_dirs, perturbation_params):
         angle = (2*np.abs(1-np.sum(normal_nom * normal_per,axis=1)))**0.5 # = 1 - cos phi = phi^2/2
         err.create_dataset("angle", data=angle)
 
-        
+        err.create_dataset("yaw_difference", data=yaw_per - yaw_nom)
+        err.create_dataset("tilt_difference", data=tilt_per - tilt_nom)
+        err.create_dataset("roll_difference", data=roll_per - roll_nom)
+
     print(f"Results saved to {hdf5_path}")
 
     plt.figure(figsize=(12, 5))
