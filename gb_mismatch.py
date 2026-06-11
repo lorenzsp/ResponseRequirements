@@ -29,7 +29,7 @@ print(f"Available devices: {jax.devices()}")
 # ==================== Observation Configuration ====================
 
 # Observation parameters
-T_OBS_DAYS = 365.0 * 1.0                      # Observation time in days
+T_OBS_DAYS = 30.0 * 1.0                      # Observation time in days
 TMAX = T_OBS_DAYS * 24 * 3600          # Observation time in seconds
 N_FREQ_BINS = 128                       # Number of frequency bins for heterodyned response
 T0 = 0.0                                  # Start time (seconds)

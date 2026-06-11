@@ -98,7 +98,7 @@ rel_perturbed_orbit = JaxGBFull(orbits=perturbed_orbits, t_obs=TMAX, t0=T0, n=N_
 # test
 # b'SDSSJ1337' SNR 12.407709826733793 Frequency 0.0003365330899526027 Frequency derivative 1.856006058763817e-20
 
-output_file = "data/gb_mismatch_results_15.0days.h5"
+output_file = f"data/gb_mismatch_results_{T_OBS_DAYS:.1f}days.h5"
 mismatch = {}
 with h5py.File(output_file, "r") as f:
     f0_vec = f["f0_vec"][()]
@@ -114,7 +114,7 @@ f0_vec = np.logspace(-4,0.0, num=10)
 
 temp = mismatch["mismatch_nonrel_vs_rel_with_nominal"]
 # Lowest frequency, worst sky location at that frequency
-i_f = 3
+i_f = 0
 sky_ind = np.argmax(temp, axis=1)[i_f]
 ind = (i_f, sky_ind)
 print(f"Injection: f0_vec[{i_f}] = {f0_vec[i_f]:.4e} Hz, sky_ind = {sky_ind}, mismatch = {temp[i_f, sky_ind]:.6f}")
@@ -122,13 +122,17 @@ print(f"Injection: f0_vec[{i_f}] = {f0_vec[i_f]:.4e} Hz, sky_ind = {sky_ind}, mi
 injection_source_params = np.array([
             f0_vec[ind[0]],                          # f0 (Hz)
             0.0,                           # fdot (Hz/s) - no evolution
-            3.028356880283817e-22,                         # amplitude (strain), f=1e-4 -> 5.292828750112632e-19
+            1.5267589596714682e-18,                         # amplitude (strain)
             betas[ind[1]],                           # ecliptic latitude (rad)
             lambs[ind[1]],                           # ecliptic longitude (rad)
             np.pi/3,                           # polarization (rad)
             np.pi/3,                       # inclination (rad)
             np.pi/3,                           # initial phase (rad)
 ])
+
+print("\nInjection source parameters:")
+for i, param in enumerate(injection_source_params):
+    print(f"  {i}: {param:.4e}")
 
 A_nom, E_nom, T_nom = rel_nominal_orbit.get_tdi(jnp.array(injection_source_params), tdi_generation=2.0, tdi_combination="AET")
 
@@ -148,6 +152,7 @@ def inner_product(d1, d2, inv_cov):
 # d_inj = snr_fixed * d_inj / SNR_injection
 SNR_injection = inner_product(d_inj, d_inj, inv_cov_AET)**0.5
 print("Injected SNR", SNR_injection)
+# breakpoint()
 
 # injection
 NTEMPS, NWALKERS, NLEAVES_MAX = 8, 64, 1
@@ -169,8 +174,8 @@ def setup_priors(f0_center, f0_width, A_center=1e-18):
     """Set up prior distributions for galactic binary parameters."""
     
     # Amplitude bounds (based on SNR considerations)
-    min_A = A_center * 10.0  # Very faint
-    max_A = A_center / 10.0  # Very bright
+    min_A = A_center / 2  # Very faint
+    max_A = A_center * 2  # Very bright
     
     # Frequency derivative bounds
     fdot_max = 1e-18  # Hz/s
@@ -235,72 +240,102 @@ print(f"Loglike (rel template, true params):   {ll_inj[0]:.4f}")
 print(f"Loglike (nonrel template, true params): {ll_nonrel[0]:.4f}")
 
 ################################# MCMC ##########################################################
-# Template: non-relativistic model; injection: relativistic model
+# injection: relativistic model
+
+# Template: non-relativistic model; 
 template_generator = nonrel_nominal_orbit
-backend_name = f"data/backend_run_nonrel_{T_OBS_DAYS}days_SNR{SNR_injection:.2f}_f{injection_source_params[0]:.2e}.h5"
-# template_generator = rel_nominal_orbit
-# backend_name = f"data/backend_run_rel_{T_OBS_DAYS}days_SNR{SNR_injection:.2f}_f{injection_source_params[0]:.2e}.h5"
+backend_name = f"data/template_nonrel_{T_OBS_DAYS}days_SNR{SNR_injection:.2f}_f{injection_source_params[0]:.2e}.h5"
 
-# Create sampler
-sampler = EnsembleSampler(
-    NWALKERS,
-    ndims,
-    likelihood,
-    priors,
-    branch_names=["gb"],
-    args=(template_generator, inv_cov_AET, temp_params),
-    tempering_kwargs=dict(ntemps=NTEMPS),
-    periodic=periodic,
-    vectorize=True,
-    backend=backend_name,
-)
+# Template: relativistic model; 
+template_generator = rel_nominal_orbit
+backend_name = f"data/template_rel_{T_OBS_DAYS}days_SNR{SNR_injection:.2f}_f{injection_source_params[0]:.2e}.h5"
 
-# Initialize state
-print("\nInitializing sampler state...")
+# Template: perturbed relativistic model; 
+template_generator = rel_perturbed_orbit
+backend_name = f"data/template_rel_perturbed_{T_OBS_DAYS}days_SNR{SNR_injection:.2f}_f{injection_source_params[0]:.2e}.h5"
 
-# Draw initial positions from prior
-start_points = {
-    "gb": priors["gb"].rvs(size=(NTEMPS, NWALKERS, NLEAVES_MAX))
-}
+list_templates = [
+    nonrel_nominal_orbit,
+    rel_nominal_orbit,
+    rel_perturbed_orbit
+]
+list_backend_names = [
+    f"data/template_nonrel_{T_OBS_DAYS}days_SNR{SNR_injection:.2f}_f{injection_source_params[0]:.2e}.h5",
+    f"data/template_rel_{T_OBS_DAYS}days_SNR{SNR_injection:.2f}_f{injection_source_params[0]:.2e}.h5",
+    f"data/template_rel_perturbed_{T_OBS_DAYS}days_SNR{SNR_injection:.2f}_f{injection_source_params[0]:.2e}.h5",
+]
 
-start_inds = {
-    "gb": np.zeros((NTEMPS, NWALKERS, NLEAVES_MAX), dtype=bool)
-}
-start_inds["gb"][:, :, 0] = True  # One source active per walker
-# start_points["gb"][0, 0, 0] = injection_source_params.copy()  # Start at true params for testing
-# start_points["gb"][0, 1, 0] = injection_source_params.copy()  # Start at true params for testing
-# start_points["gb"][0, 1, 0][5] += 0.5  # Start with wrong amplitude for testing
-# start_points["gb"][0, 2, 0] = injection_source_params.copy()  # Start at true params for testing
+for template_generator, backend_name in zip(list_templates, list_backend_names):
+    print("\n" + "=" * 60)
+    print(f"Running MCMC with backend {backend_name}")
+    print("=" * 60)
+    # Create sampler
+    sampler = EnsembleSampler(
+        NWALKERS,
+        ndims,
+        likelihood,
+        priors,
+        branch_names=["gb"],
+        args=(template_generator, inv_cov_AET, temp_params),
+        tempering_kwargs=dict(ntemps=NTEMPS),
+        periodic=periodic,
+        vectorize=True,
+        backend=backend_name,
+    )
 
-start_state = State(start_points)
+    # Initialize state
+    print("\nInitializing sampler state...")
 
-# Compute initial prior and likelihood
-lp = sampler.compute_log_prior(start_state.branches_coords)
-start_state.log_prior = lp
+    # Draw initial positions from prior
+    start_points = {
+        "gb": priors["gb"].rvs(size=(NTEMPS, NWALKERS, NLEAVES_MAX))
+    }
 
-ll = sampler.compute_log_like(start_state.branches_coords, logp=lp, inds=start_inds)
-start_state.log_like = ll[0]
+    start_inds = {
+        "gb": np.zeros((NTEMPS, NWALKERS, NLEAVES_MAX), dtype=bool)
+    }
+    start_inds["gb"][:, :, 0] = True  # One source active per walker
+    # set the coldest chain to start at the injection parameters, others are randomly perturbed around it
+    for par_i in range(len(injection_source_params)):
+        if par_i != 1:  # Amplitude: sample in log space
+            start_points["gb"][0, :, 0, par_i] = np.random.normal(loc=injection_source_params[par_i], scale=1e-6*injection_source_params[par_i], size=(NWALKERS))  # Perturb parameters for testing
 
-print(f"Initial log-likelihood range: [{ll[0].min():.2f}, {ll[0].max():.2f}]")
+    # set the other temperatures to be consistent in frequency and amplitude, but random in the other parameters to allow multimodality exploration
+    for par_i in [0,2]:  # f0 and amplitude: sample in log space
+        start_points["gb"][1:, :, 0, par_i] = np.random.normal(loc=injection_source_params[par_i], scale=1e-6*injection_source_params[par_i], size=(NTEMPS-1, NWALKERS))  # Perturb parameters for testing
 
-# Time the likelihood
-import time
-tic = time.time()
-_ = sampler.compute_log_like(start_state.branches_coords, logp=lp)
-toc = time.time()
-print(f"Likelihood evaluation time: {(toc - tic) * 1000:.2f} ms")
+    # set one walker in the coldest chain to start at the injection parameters
+    start_points["gb"][0, 0, 0] = injection_source_params.copy()  # Start at true params for testing
 
-# # Run MCMC
-# print("\n" + "=" * 60)
-# print("Running MCMC  [injection: rel_nominal | template: nonrel_nominal]")
-# print("=" * 60)
+    start_state = State(start_points)
 
-n_iterations = 5000
-print(f"Running {n_iterations} iterations...")
+    # Compute initial prior and likelihood
+    lp = sampler.compute_log_prior(start_state.branches_coords)
+    start_state.log_prior = lp
 
-sampler.run_mcmc(start_state, n_iterations, progress=True)
+    ll = sampler.compute_log_like(start_state.branches_coords, logp=lp, inds=start_inds)
+    start_state.log_like = ll[0]
 
-print("\n" + "=" * 60)
-print("MCMC Complete!")
-print("=" * 60)
+    print(f"Initial log-likelihood range: [{ll[0].min():.2f}, {ll[0].max():.2f}]")
+
+    # Time the likelihood
+    import time
+    tic = time.time()
+    _ = sampler.compute_log_like(start_state.branches_coords, logp=lp)
+    toc = time.time()
+    print(f"Likelihood evaluation time: {(toc - tic) * 1000:.2f} ms")
+
+    # # Run MCMC
+    # print("\n" + "=" * 60)
+    # print("Running MCMC  [injection: rel_nominal | template: nonrel_nominal]")
+    # print("=" * 60)
+
+    n_iterations = 5000
+    print(f"Running {n_iterations} iterations...")
+
+    sampler.run_mcmc(start_state, n_iterations, progress=True)
+
+    print("\n" + "=" * 60)
+    print("MCMC Complete!")
+    print("=" * 60)
 
