@@ -421,7 +421,7 @@ def generate_realizations(arm_lengths, armlength_error, rotation_error, translat
     return perturbed_ltt, perturbed_positions
 
 
-def compute_covariance(f, ltts):
+def compute_covariance(f, ltts, oms_ref = 15e-12, tm_ref = 3e-15):
     """
     Compute the noise covariance in the TDI variables for given frequencies and mixing matrix.
     Parameters
@@ -440,12 +440,12 @@ def compute_covariance(f, ltts):
     # The OMS noise is defined in terms of displacement (meters), which we convert
     # to fractional frequency shifts
     displ_2_ffd = 2 * np.pi * f / c
-    oms = (15e-12) ** 2 * displ_2_ffd**2 * (1 + ((2e-3) / f) ** 4)
+    oms = (oms_ref) ** 2 * displ_2_ffd**2 * (1 + ((2e-3) / f) ** 4)
 
     # The TM noise is defined in terms of acceleration (m/s^2), which we convert to
     # fractional frequency shifts
     acc_2_ffd = 1 / (2 * np.pi * f * c)
-    tm = (3e-15) ** 2 * acc_2_ffd**2 * (1 + (0.4e-3 / f) ** 2) * (1 + (f / 8e-3) ** 4)
+    tm = (tm_ref) ** 2 * acc_2_ffd**2 * (1 + (0.4e-3 / f) ** 2) * (1 + (f / 8e-3) ** 4)
     
     # Construct the overall noise covariance
     noise_cov = construct_covariance_from_psds([oms] * 6 + [tm] * 6)
