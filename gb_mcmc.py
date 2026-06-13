@@ -122,7 +122,7 @@ print(f"Injection: f0_vec[{i_f}] = {f0_vec[i_f]:.4e} Hz, sky_ind = {sky_ind}, mi
 injection_source_params = np.array([
             f0_vec[ind[0]],                          # f0 (Hz)
             0.0,                           # fdot (Hz/s) - no evolution
-            1.5267589596714682e-18,                         # amplitude (strain)
+            9.67470186179217e-19,                         # amplitude (strain)
             betas[ind[1]],                           # ecliptic latitude (rad)
             lambs[ind[1]],                           # ecliptic longitude (rad)
             np.pi/3,                           # polarization (rad)
@@ -152,7 +152,6 @@ def inner_product(d1, d2, inv_cov):
 # d_inj = snr_fixed * d_inj / SNR_injection
 SNR_injection = inner_product(d_inj, d_inj, inv_cov_AET)**0.5
 print("Injected SNR", SNR_injection)
-# breakpoint()
 
 # injection
 NTEMPS, NWALKERS, NLEAVES_MAX = 8, 64, 1
