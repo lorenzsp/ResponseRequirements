@@ -77,13 +77,14 @@ If you use this code or data in your research, please cite the following paper:
 
 **BibTeX entry:**
 ```bibtex
-@article{Speri2026,
-  author = {Speri, Lorenzo and Hartwig, Olaf and Martens, Waldemar and Jennrich, Oliver and Joffre, Eric and Armano, Michele and Hewitson, Martin and L\"utzgendorf, Nora},
-  title = {Impact of uncertainties and mismodeling of the gravitational wave response on the Laser Interferometer Space Antenna Science},
-  journal = {},
-  year = {2026},
-  note = {In preparation},
-  url = {https://github.com/lorenzsp/ResponseRequirements}
+@article{Speri:2026itd,
+    author = {Speri, Lorenzo and Hartwig, Olaf and Martens, Waldemar and Jennrich, Oliver and Joffre, Eric and Armano, Michele and Hewitson, Martin and L{\"u}tzgendorf, Nora},
+    title = "{Impact of Spacecraft Orbit Uncertainties and Velocity Mismodeling on the LISA Gravitational-Wave Response}",
+    eprint = "2607.01318",
+    archivePrefix = "arXiv",
+    primaryClass = "gr-qc",
+    month = "7",
+    year = "2026"
 }
 ```
 
