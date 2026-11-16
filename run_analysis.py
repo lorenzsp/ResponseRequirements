@@ -48,6 +48,9 @@ parser.add_argument('--time_eval', type=float, default=0.0,
                     help="Evaluation epoch (days); relevant for evolving runs.")
 parser.add_argument('--boost_flag', type=int, default=1, choices=[0, 1],
                     help="Whether to include the velocity boost in the response computation (1) or not (0).")
+# add quick run argument for testing
+parser.add_argument('--quick_run', action='store_true',
+                    help="If set, run a quick test with fewer perturbations and frequencies.")
 args = parser.parse_args()
 
 run_flag = args.run_flag
@@ -83,6 +86,8 @@ if run_flag == 'evolving':
                                 ltts=ltts_median,
                                 interp_order=3)
 
+if args.quick_run:
+    N = 10  # Limit the number of perturbations for a quick run
 # ---------------------------------------------------------------------------
 # Nominal orbit quantities
 # ---------------------------------------------------------------------------
