@@ -145,14 +145,14 @@ for i_f, f0 in enumerate(f0_vec):
     )
     d_new = np.stack([A_new, E_new, T_new], axis=1)  # (npix, 3, N_FREQ_BINS)
 
-    plt.figure()
-    plt.plot(freqs, np.real(d_old[0, 0, :]), label="Old model (A)", color="C0")
-    plt.plot(freqs, np.real(d_new[0, 0, :]), label="New model (A)", color="C0", linestyle="--")
-    plt.plot(freqs, np.imag(d_old[0, 0, :]), label="Old model (A) (imag)", linestyle="-", color="C1")
-    plt.plot(freqs, np.imag(d_new[0, 0, :]), label="New model (A) (imag)", linestyle="--", color="C1")
-    plt.xlabel("Frequency (Hz)")
-    plt.ylabel("Amplitude")
-    plt.show()
+    # plt.figure()
+    # plt.plot(freqs, np.real(d_old[0, 0, :]), label="Old model (A)", color="C0")
+    # plt.plot(freqs, np.real(d_new[0, 0, :]), label="New model (A)", color="C0", linestyle="--")
+    # plt.plot(freqs, np.imag(d_old[0, 0, :]), label="Old model (A) (imag)", linestyle="-", color="C1")
+    # plt.plot(freqs, np.imag(d_new[0, 0, :]), label="New model (A) (imag)", linestyle="--", color="C1")
+    # plt.xlabel("Frequency (Hz)")
+    # plt.ylabel("Amplitude")
+    # plt.show()
 
     # Compute mismatch
     mismatch = np.asarray(
