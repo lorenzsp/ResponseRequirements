@@ -29,7 +29,7 @@ print(f"Available devices: {jax.devices()}")
 # ==================== Observation Configuration ====================
 
 # Observation parameters
-T_OBS_DAYS = 30.0 * 1.0                      # Observation time in days
+T_OBS_DAYS = 365.0 * 1.0                      # Observation time in days
 TMAX = T_OBS_DAYS * 24 * 3600          # Observation time in seconds
 N_FREQ_BINS = 128                       # Number of frequency bins for heterodyned response
 T0 = 0.0                                  # Start time (seconds)
@@ -219,39 +219,39 @@ else:
     print(f"Results saved to {output_file}")
 
 # ==================== Plot Results ====================
-# mismatch = {}
-# with h5py.File(output_file, "r") as f:
-#     f0_vec = f["f0_vec"][()]
-#     for key in f.keys():
-#         if key.startswith("mismatch_"):
-#             mismatch[key] = f[key][()]
+mismatch = {}
+with h5py.File(output_file, "r") as f:
+    f0_vec = f["f0_vec"][()]
+    for key in f.keys():
+        if key.startswith("mismatch_"):
+            mismatch[key] = f[key][()]
 
-# labels = {
-#     "mismatch_perturbed_vs_nominal_with_nonrel": "Perturbed vs Nominal Orbits (Non-Boosted Response)",
-#     "mismatch_perturbed_vs_nominal_with_rel": "Perturbed vs Nominal Orbits (Boosted Response)",
-#     "mismatch_nonrel_vs_rel_with_perturbed": "Non-Boosted vs Boosted Response (Perturbed orbits)",
-#     "mismatch_nonrel_vs_rel_with_nominal": "Non-Boosted vs Boosted Response (Nominal orbits)",
-#     "mismatch_nonrel_vs_rel_test": "Non-Boosted. vs Boosted Response (Test)",
-# }
+labels = {
+    "mismatch_perturbed_vs_nominal_with_nonrel": "Perturbed vs Nominal Orbits (Non-Boosted Response)",
+    "mismatch_perturbed_vs_nominal_with_rel": "Perturbed vs Nominal Orbits (Boosted Response)",
+    "mismatch_nonrel_vs_rel_with_perturbed": "Non-Boosted vs Boosted Response (Perturbed orbits)",
+    "mismatch_nonrel_vs_rel_with_nominal": "Non-Boosted vs Boosted Response (Nominal orbits)",
+    "mismatch_nonrel_vs_rel_test": "Non-Boosted. vs Boosted Response (Test)",
+}
 
-# plt.figure()
-# for key in mismatch.keys():
-#     if 'test' in key:
-#         continue
-#     if key == 'mismatch_nonrel_vs_rel_with_perturbed':
-#         continue
-#     y_mean = mismatch[key].mean(axis=1)
-#     y_min = mismatch[key].min(axis=1)
-#     y_max = mismatch[key].max(axis=1)
-#     plt.fill_between(f0_vec, y_min, y_max, alpha=0.2)
-#     plt.plot(f0_vec, y_mean, '-o', label=labels[key])
-# plt.xscale("log")
-# plt.yscale("log")
-# plt.xlabel("Galactic Binary Frequency (Hz)")
-# plt.ylabel("Mismatch")
-# plt.title("Mismatch between GB templates")
-# plt.legend()
-# plt.grid()
-# plt.tight_layout()
-# plt.savefig(f"gb_mismatch_plot_{T_OBS_DAYS:.1f}days.png", dpi=300)
-# plt.show()
+plt.figure()
+for key in mismatch.keys():
+    if 'test' in key:
+        continue
+    if key == 'mismatch_nonrel_vs_rel_with_perturbed':
+        continue
+    y_mean = mismatch[key].mean(axis=1)
+    y_min = mismatch[key].min(axis=1)
+    y_max = mismatch[key].max(axis=1)
+    plt.fill_between(f0_vec, y_min, y_max, alpha=0.2)
+    plt.plot(f0_vec, y_mean, '-o', label=labels[key])
+plt.xscale("log")
+plt.yscale("log")
+plt.xlabel("Galactic Binary Frequency (Hz)")
+plt.ylabel("Mismatch")
+plt.title("Mismatch between GB templates")
+plt.legend()
+plt.grid()
+plt.tight_layout()
+plt.savefig(f"gb_mismatch_plot_{T_OBS_DAYS:.1f}days.png", dpi=300)
+plt.show()

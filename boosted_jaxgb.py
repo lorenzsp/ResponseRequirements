@@ -99,9 +99,10 @@ class JaxGBFull(JaxGB):
         t_obs: float = 6.2914560e7,
         t0: float = 0.0,
         n: int = 128,
+        window: str | tuple | jax.Array | None = "boxcar",
         old_implementation: bool = False,  # for testing only
     ) -> None:
-        super().__init__(orbits, t_obs=t_obs, t0=t0, n=n)
+        super().__init__(orbits, t_obs=t_obs, t0=t0, n=n, window=window)
         self.old_implementation = old_implementation
 
         self.velocity = (
@@ -111,20 +112,12 @@ class JaxGBFull(JaxGB):
         ) / c  # (3, 3, n)
 
         self.ltts = self.orbits.compute_ltt(self.t0 + self.tm)
-        ltt = jnp.mean(self.orbits.compute_ltt(self.t0 + self.tm).T, axis=0)  # (6, n) -> (n,)
-        self.arm_length = ltt * c
-        self.position = (
-            self.orbits.compute_position(self.t0 + self.tm, [1, 2, 3])
-            .swapaxes(0, 1)
-            .swapaxes(1, 2)
-        )  # (3, 3, n)
-        self.fstar = c / (self.arm_length * 2 * np.pi)
-        
+
         if self.old_implementation:
-            print("WARNING: Using old implementation of JaxGBFull with no velocity corrections. This is for testing purposes only and should not be used for production runs.")
-            ltt = self._get_ltt_simple()
-            self.arm_length = ltt * c
-            self.fstar = c / (self.arm_length * 2 * np.pi)
+            print(
+                "WARNING: JaxGBFull velocity corrections are disabled. "
+                "This option is for testing only."
+            )
 
     # ------------------------------------------------------------------
 
@@ -132,10 +125,10 @@ class JaxGBFull(JaxGB):
         self,
         f0_fdot_phi0: jax.Array,
         k: jax.Array,
-        dpdc: tuple[jax.Array, jax.Array],
-        pol_tensors: tuple[jax.Array, jax.Array],
+        apac_ssb: tuple[jax.Array, jax.Array],
+        epec_ssb: tuple[jax.Array, jax.Array],
     ) -> jax.Array:
-        """Heterodyned slow response using the full velocity-corrected kernel.
+        """Heterodyned slow response using the velocity-corrected kernel.
 
         Parameters
         ----------
@@ -143,10 +136,10 @@ class JaxGBFull(JaxGB):
             Per-source ``[f0, fdot, phi0]``.
         k : jax.Array, shape (3, nsrc)
             GW propagation unit vectors.
-        dpdc : tuple of complex jax.Array, each (nsrc,)
-            Complex strain amplitudes (D+, D×).
-        pol_tensors : tuple of jax.Array, each (nsrc, 3, 3)
-            Polarisation tensors (e+, e×).
+        apac_ssb : tuple of complex jax.Array, each (nsrc,)
+            Plus and cross strain amplitudes in the SSB frame.
+        epec_ssb : tuple of jax.Array, each (nsrc, 3, 3)
+            Plus and cross polarisation tensors in the SSB frame.
 
         Returns
         -------
@@ -154,126 +147,76 @@ class JaxGBFull(JaxGB):
             Slow heterodyned link responses.
             Link order: ``[12, 23, 31, 13, 32, 21]``.
         """
-        nsrc = len(f0_fdot_phi0)
-
-        # ── Arm unit vectors ──────────────────────────────────────────────────
-        r = jnp.zeros((4, 3, self.n))
-        if self.old_implementation:
-            # r convention: [r_12, r_13, r_23, r_31]  (identical to parent)
-            r = r.at[0].set(self.position[1] - self.position[0])
-            r = r.at[1].set(self.position[2] - self.position[0])
-            r = r.at[2].set(self.position[2] - self.position[1])
-            r = r.at[3].set(-r[1])
-            r /= self.arm_length
-        
-        # # option 1
-        # # MOSAS = np.array([12, 23, 31, 13, 32, 21])
-        # r = jnp.zeros((4, 3, self.n))
-        # r = r.at[0].set((self.position[1] - self.position[0])/(self.ltts[:,0] * c))
-        # r = r.at[1].set((self.position[2] - self.position[0])/(self.ltts[:,3] * c))
-        # r = r.at[2].set((self.position[2] - self.position[1])/(self.ltts[:,1] * c))
-        # r = r.at[3].set(-r[1]/(self.ltts[:,2] * c))
-        
-        # New implementation that normalizes the unit vectors
-        else:
-            r = r.at[0].set((self.position[1] - self.position[0])/np.linalg.norm(self.position[1] - self.position[0], axis=0))
-            r = r.at[1].set((self.position[2] - self.position[0])/np.linalg.norm(self.position[2] - self.position[0], axis=0))
-            r = r.at[2].set((self.position[2] - self.position[1])/np.linalg.norm(self.position[2] - self.position[1], axis=0))
-            r = r.at[3].set(-r[1])
-
-        # print("Mean relative difference", np.mean(self.arm_length/(self.ltts[:,0] * c)-1))
-
-        # ── k̂·n̂ for all 6 directed links ─────────────────────────────────────
-        # kdotr convention: [12, 21, 13, 31, 23, 32]  (identical to parent)
-        kdotr = jnp.zeros((nsrc, 6, self.n))
-        kdotr = kdotr.at[:, ::2].set(jnp.dot(k.T, r[:3]))   # k·n̂_12, k·n̂_13, k·n̂_23
-        kdotr = kdotr.at[:, 1::2].set(-kdotr[:, ::2])        # k·n̂_21, k·n̂_31, k·n̂_32
-
-        # ── Position phases, retarded times, instantaneous frequency ──────────
-        kdotp_raw = jnp.dot(k.T, self.position) / c  # k̂·x_sc/c, (nsrc, 3, n)
-
         f0, fdot, phi0 = f0_fdot_phi0[:, 0], f0_fdot_phi0[:, 1], f0_fdot_phi0[:, 2]
-        xi    = self.tm - kdotp_raw                                # retarded time
-        fi    = f0[:, None, None] + fdot[:, None, None] * xi      # inst. GW freq.
-        fonfs = fi / self.fstar                                    # Ω_gw·L/c
-        
-        # ── Strain coupling A_ij ──────────────────────────────────────────────
-        # (identical to parent)  idx selects r_12, r_23, r_31 from r
-        idx   = jnp.array([0, 2, 3])
-        eplus, ecross = pol_tensors
-        aij   = (
-            jnp.swapaxes(jnp.dot(eplus,  r[idx]), 1, 2) * r[idx]
-            * dpdc[0][:, None, None, None]
-            + jnp.swapaxes(jnp.dot(ecross, r[idx]), 1, 2) * r[idx]
-            * dpdc[1][:, None, None, None]
-        )
-        asum = aij.sum(axis=2)  # A_ij for links [12, 23, 31], shape (nsrc, 3, n)
+        receiver_sc = jnp.array([0, 1, 2, 0, 2, 1])
+        transmitter_sc = jnp.array([1, 2, 0, 2, 0, 1])
 
-        # ── Heterodyned position phases φ_sc = ω₀ k̂·x_sc/c − arg_s ──────────
-        # (identical to parent)
-        q     = jnp.rint(f0 * self.t_obs)
-        df    = 2.0 * np.pi * (q / self.t_obs)
-        om    = 2.0 * np.pi * f0
+        # JaxGB 0.2.2 defines r as receiver position minus transmitter position.
+        # Its three independent arms are ordered 12, 23, 31; reverse them to
+        # obtain the six directed links in the public output order.
+        r = jnp.concatenate((self.r, -self.r[::-1]), axis=0)
+        kdotr = jnp.einsum("sx,lxt->slt", k.T, r)
 
+        kdotp_raw = jnp.einsum("sx,cxt->sct", k.T, self.position) / c
+        xi = self.tm[None, None, :] - kdotp_raw
+        fi = f0[:, None, None] + fdot[:, None, None] * xi
+        fonfs = fi[:, receiver_sc, :] / self.fstar
+
+        eplus, ecross = epec_ssb
+        a_ij = (
+            jnp.einsum("sij,ljt->slit", eplus, r)
+            * r[None, :, :, :]
+            * apac_ssb[0][:, None, None, None]
+            + jnp.einsum("sij,ljt->slit", ecross, r)
+            * r[None, :, :, :]
+            * apac_ssb[1][:, None, None, None]
+        ).sum(axis=2)
+
+        q = jnp.rint(f0 * self.t_obs)
+        df = 2.0 * np.pi * (q / self.t_obs)
+        om = 2.0 * np.pi * f0
         arg_s = (
-            (phi0[:, None] + (om - df)[:, None] * self.tm[None, :])[:, None, :]
-            + np.pi * fdot[:, None, None] * xi**2
-        )  # (nsrc, 3, n)
-        kdotp = om[:, None, None] * kdotp_raw - arg_s  # (nsrc, 3, n)
+            -phi0[:, None] + (om - df)[:, None] * self.tm[None, :]
+        )[:, None, :] + np.pi * fdot[:, None, None] * xi**2
+        phase = om[:, None, None] * kdotp_raw - arg_s
+        phase_rx = phase[:, receiver_sc, :]
 
-        # ── Link index arrays ─────────────────────────────────────────────────
-        # gs convention (before final reorder): [12, 23, 31, 21, 32, 13]
-        tx_sc    = jnp.array([0, 1, 2, 1, 2, 0])   # transmitter spacecraft (0-idx)
-        rx_sc    = jnp.array([1, 2, 0, 0, 1, 2])   # receiver   spacecraft (0-idx)
-        link_ord = jnp.array([0, 4, 3, 1, 5, 2])   # gs-order → kdotr-order
+        alpha = 0.5 * fonfs * (1.0 - kdotr)
+        denominator = 1.0 - kdotr
 
-        # ── n̂_ij for all 6 links, shape (6, 3, n) ────────────────────────────
-        n_all = jnp.stack([r[0], r[2], r[3], -r[0], -r[2], r[1]])
+        velocity = jnp.asarray(self.velocity)
+        kdotv = jnp.einsum("sx,xct->sct", k.T, velocity)
+        kdotv_tx = kdotv[:, transmitter_sc, :]
+        kdotv_rx = kdotv[:, receiver_sc, :]
+        ndotv_tx = (r * velocity[transmitter_sc]).sum(axis=1)
+        ndotv_rx = (r * velocity[receiver_sc]).sum(axis=1)
 
-        # ── Velocity projections ──────────────────────────────────────────────
-        vel = jnp.asarray(self.velocity)  # (3_sc, 3_xyz, n), v/c dimensionless
+        b_rx = 1.0 - kdotv_tx + ndotv_rx[None, :, :]
+        b_tx = (
+            1.0
+            - kdotv_rx
+            + (ndotv_tx - 2.0 * ndotv_rx)[None, :, :]
+        )
+        if self.old_implementation:
+            b_tx = jnp.ones_like(b_tx)
+            b_rx = jnp.ones_like(b_rx)
 
-        # k̂·v for each spacecraft → (nsrc, 3_sc, n)
-        k_dot_v    = jnp.einsum("sx,yxn->syn", k.T, vel)
-        k_dot_v_tx = k_dot_v[:, tx_sc, :]    # (nsrc, 6, n)
-        k_dot_v_rx = k_dot_v[:, rx_sc, :]    # (nsrc, 6, n)
-
-        # n̂_ij · v for tx and rx spacecraft → (6, n)
-        n_dot_v_tx = (n_all * vel[tx_sc]).sum(axis=1)  # n̂_ij · v_i
-        n_dot_v_rx = (n_all * vel[rx_sc]).sum(axis=1)  # n̂_ij · v_j
-
-        # ── Velocity brackets ─────────────────────────────────────────────────
-        # B_rx = 1 − k̂·v_j + n̂_ij·v_i
-        B_rx = 1.0 - k_dot_v_rx + n_dot_v_tx[None, :, :]          # (nsrc, 6, n)
-        # B_tx = 1 − k̂·v_i + n̂_ij·(v_j − 2 v_i)
-        B_tx = (
-            1.0 - k_dot_v_tx
-            + (n_dot_v_rx - 2.0 * n_dot_v_tx)[None, :, :]
-        )                                                            # (nsrc, 6, n)
-
-        # ── Phase terms per link ──────────────────────────────────────────────
-        phi_tx  = kdotp[:, tx_sc, :]   # φ_tx,          (nsrc, 6, n)
-        phi_rx  = kdotp[:, rx_sc, :]   # φ_rx,          (nsrc, 6, n)
-        omega_L = fonfs[:, tx_sc, :]   # Ω_gw(ξ_tx)·L/c (nsrc, 6, n)
-        # # new implementation
-        # fstar_new = 1 / (self.ltts[:,tx_sc] * 2 * np.pi)
-        # omega_L = (fonfs[:, tx_sc, :] * self.fstar) / fstar_new.T
-        
-        # Geometric denominator  1 + k̂·n̂_ij  (parent sign convention)
-        denom = 1.0 + kdotr[:, link_ord]   # (nsrc, 6, n)
-
-        # ── Full velocity-corrected response ──────────────────────────────────
-        gs = (
-            asum[:, [0, 1, 2, 0, 1, 2], :]
-            / (2.0 * denom)
+        base_response = (
+            -0.5j
+            * a_ij
+            * fonfs
+            * jnp.sinc(alpha / np.pi)
+            * jnp.exp(-1j * (alpha + phase_rx))
+        )
+        velocity_correction = (
+            -a_ij
+            / (2.0 * denominator)
             * (
-                B_tx * jnp.exp(-1j * phi_tx)
-                - B_rx * jnp.exp(-1j * (omega_L + phi_rx))
+                (b_tx - 1.0) * jnp.exp(-1j * phase_rx)
+                - (b_rx - 1.0) * jnp.exp(-1j * (2.0 * alpha + phase_rx))
             )
-        )  # (nsrc, 6, n),  convention [12, 23, 31, 21, 32, 13]
-
-        # Reorder → parent output convention [12, 23, 31, 13, 32, 21]
-        return gs[:, [0, 1, 2, 5, 4, 3]]
+        )
+        return base_response + velocity_correction
     
     def get_data_minus_template(
         self,
@@ -303,10 +246,10 @@ class JaxGBFull(JaxGB):
         loglike : jnp.ndarray
             Log-likelihood value
         """
-        kmins = self.get_kmin(f0=params[:, 0], fdot=params[:, 1], t_init=t_init)
+        kmins = self.get_kmin(f0=params[:, 0])
 
         # Compute residual: data - sum(templates)
-        _x, _y, _z = self.get_tdi(params,t_init=t_init,**kwargs)
+        _x, _y, _z = self.get_tdi(params,**kwargs)
         templates = -jnp.stack([_x, _y, _z],axis=1)
         
         return vadd(data, templates, kmins-kmin, kmax, self.n)

@@ -136,7 +136,7 @@ for i, param in enumerate(injection_source_params):
 
 A_nom, E_nom, T_nom = rel_nominal_orbit.get_tdi(jnp.array(injection_source_params), tdi_generation=2.0, tdi_combination="AET")
 
-kmin = int(np.array(rel_nominal_orbit.get_kmin(injection_source_params[0],injection_source_params[1])))
+kmin = int(np.array(rel_nominal_orbit.get_kmin(injection_source_params[0])))
 kmax = kmin + rel_nominal_orbit.n
 freqs = DF * (np.arange(N_FREQ_BINS) + kmin)
 cov_AET = compute_covariance(freqs, ltts_median).mean(axis=0)
