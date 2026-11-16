@@ -32,7 +32,7 @@ print(f"Available devices: {jax.devices()}")
 
 # ==================== Configuration ====================
 
-T_OBS_DAYS  = 15.0
+T_OBS_DAYS  = 365.0
 TMAX        = T_OBS_DAYS * 24 * 3600
 N_FREQ_BINS = 128
 T0          = 0.0
@@ -102,6 +102,8 @@ print(f"\n{'='*70}")
 print(f"Testing mismatch: JaxGB vs JaxGBFull (non-relativistic)")
 print(f"{'='*70}\n")
 
+print(nonrel_nominal_orbit_old.fstar, nonrel_nominal_orbit.fstar)
+
 for i_f, f0 in enumerate(f0_vec):
     print(f"[{i_f+1}/{n_freq}]  f0 = {f0:.4e} Hz")
 
@@ -123,7 +125,7 @@ for i_f, f0 in enumerate(f0_vec):
     source_params[:, 4] = lambs
 
     # Get frequency bins
-    kmin = int(np.array(nonrel_nominal_orbit_old.get_kmin(f0, 0.0)))
+    kmin = int(np.array(nonrel_nominal_orbit_old.get_kmin(f0)))
     kmax = kmin + N_FREQ_BINS
     freqs = DF * (np.arange(N_FREQ_BINS) + kmin)
 
@@ -142,6 +144,15 @@ for i_f, f0 in enumerate(f0_vec):
         jnp.array(source_params), tdi_generation=2.0, tdi_combination="AET"
     )
     d_new = np.stack([A_new, E_new, T_new], axis=1)  # (npix, 3, N_FREQ_BINS)
+
+    plt.figure()
+    plt.plot(freqs, np.real(d_old[0, 0, :]), label="Old model (A)", color="C0")
+    plt.plot(freqs, np.real(d_new[0, 0, :]), label="New model (A)", color="C0", linestyle="--")
+    plt.plot(freqs, np.imag(d_old[0, 0, :]), label="Old model (A) (imag)", linestyle="-", color="C1")
+    plt.plot(freqs, np.imag(d_new[0, 0, :]), label="New model (A) (imag)", linestyle="--", color="C1")
+    plt.xlabel("Frequency (Hz)")
+    plt.ylabel("Amplitude")
+    plt.show()
 
     # Compute mismatch
     mismatch = np.asarray(

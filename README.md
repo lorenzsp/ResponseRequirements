@@ -26,9 +26,9 @@ Follow these steps to set up the project on your local machine:
 2. **Install dependencies**:
     Ensure you have conda installed. Then run:
     ```bash
-    conda create -n resp -c conda-forge -y python=3.12
+    conda create -n resp --override-channels -c conda-forge -y python=3.12
     conda activate resp
-    pip install lisaorbits lisaconstants pytdi tqdm numpy Cython scipy jupyter ipython h5py matplotlib tqdm healpy corner eryn segwo jaxgb
+    pip install lisaorbits lisaconstants pytdi tqdm numpy Cython scipy jupyter ipython h5py matplotlib tqdm healpy corner eryn segwo==1.2 jaxgb==0.2.0
     ```
 
 ## Running Analysis
