@@ -458,55 +458,144 @@ def compute_covariance(f, ltts, oms_ref = 15e-12, tm_ref = 3e-15):
 
     return noise_cov_tdi_pytdi
 
+ALL_TERMS = ("stat", "red", "pa1", "pa2", "defl", "sc")
+LINK_EMITTER = np.array([1, 2, 0, 2, 1, 0])   # links ordered (12, 23, 31, 13, 32, 21)
+LINK_RECEIVER = np.array([0, 1, 2, 0, 2, 1])
+
 def _link_response_boosted(
-    f, beta, lamb, ltts, positions, velocities
-):
+    f: np.ndarray,
+    beta: np.ndarray,
+    lamb: np.ndarray,
+    ltts: np.ndarray,
+    positions: np.ndarray,
+    velocities: np.ndarray | None = None,
+    *,
+    terms=ALL_TERMS,
+    retarded: bool = True,
+) -> np.ndarray:
+    """Sky-dependent, frequency-domain link response including O(v/c) terms.
+
+    Implements G = G_stat + G_red + G_pa1 + G_pa2 + G_defl + G_sc
+    (van der Steen et al. 2025, as rewritten in Speri et al.).
+
+    Each term, divided by `e^{-iΦ₂}`, matches Eqs. (`G_stat` … `G_sc`) in `main.tex`:
+
+    | Term | In code | LaTeX |
+    |---|---|---|
+    | stat | `C·s` | `C[e^{-iΦ₁}-e^{-iΦ₂}]` |
+    | red | `C·k·Δβ - (k·β_j)·C·s` | `C[β_i·k e^{-iΦ₂} - β_j·k e^{-iΦ₁}]` |
+    | pa1 | `(n·β_j)·C·s` | `C β_j·n [e^{-iΦ₁} - e^{-iΦ₂}]` |
+    | pa2 | `-(n·Δβ)·C·(1+s)` | `-C Δβ·n e^{-iΦ₁}` |
+    | defl | `-S[ζ(a)+C k·a]` | `-e^{-iΦ₂} S(ΔΦ)[ζ_p(n,a)+C_p k·a]` |
+    | sc | `ζ(Δβ) - ζ(β_j)·s` | `ζ(β_i)e^{-iΦ₂} - ζ(β_j)e^{-iΦ₁}` |
+
+    - **Phases:**
+    - `x = f·LTT·κ = ΔΦ/2π`.
+    - `S = e^{-iπx} sinc(x)`, using `np.sinc(x) = sin(πx)/(πx)`.
+    - `s = -2πi·x·S = e^{-iΔΦ}-1`.
+    - The extra phase is `E = e^{-iΦ₂}`.
+    - **Amplitude:** `C = ½(1+n·k)(cos 2φ, sin 2φ)` is the regular form from the paper.
+    - **Geometry:** the retarded `n = m + β_j - (β_j·m) m` agrees with Eq. (21) of the reference.
+    - **Shapes:** broadcasting is correct for every term, including the `(t,1,link)` scalars.
+
+    ## Numerical check
+    - **Term-by-term against an independent reference.** The reference used a linear-motion toy constellation with the exact photon travel time and exact retarded geometry. The code agrees to better than `1e-12` for the full sum and to `1e-17` for each correction.
+    - **Against the paper's time-domain equations.** I evaluated Eqs. (33) + (37) directly, with a numerical integral along the path for `H` and `δn` from Eq. (31). I took a monochromatic wave and set `t = 0`. The agreement is `6e-13`. This also confirms the `S(ΔΦ)` factor, `a_ij` and the signs in the LaTeX.
+    - **Stationary limit.** With `velocities=None`, the output equals `_link_response_baghi23` to `3e-16`, relative to a maximum magnitude of 0.84.
+
+    ## Caveats, none of them bugs
+    - **LTT input.** `ltts` must be the true photon travel time, i.e. including the point-ahead shift, not `|r_i-r_j(t)|/c`. The two differ by about `β_j·n·L/c ≈ 1e-3 s`, which is relative `~1e-4` in `ΔΦ`, the same order as the effect.
+    - **`retarded=False`.**
+    - The phase then uses `r_j = r_i - L m`, which is not the emitter at `t-L/c`.
+    - That mode is not identical to the stationary model. The stationary model is `velocities=None`.
+    - The docstring should say this, and which of the two `main.tex` refers to as "neglecting velocities".
+    - **`n → k`.**
+    - `φ = arctan2(...)` is arbitrary exactly at `n = k`. `C` stays finite, but the limit depends on the direction of approach.
+    - This only matters at that exact point. If you test it, check for NaN.
+    - **Docstring.**
+    - The comment `# (t, link, xyz) . (loc, xyz)` on `dot` is fine.
+    - `ndb` is reused with two shapes. This works, but renaming the second one to `ndb_b` would be clearer.
+    - `(2,)` is hardcoded for polarizations.
+    - **Memory.** `G`, `S` and `s` are full `(t, f, loc, link, pol)` complex arrays. This can be large for big `t × f × loc`, so process in chunks over `t` if needed.
+
+    Args:
+        f: Frequency grid [Hz], shape (f,).
+        beta, lamb: Ecliptic latitude / longitude [rad], shape (loc,).
+        ltts: Light travel times [s], shape (t, link).
+        positions: Spacecraft positions [m], shape (t, sc, xyz).
+        velocities: Spacecraft velocities [m/s], shape (t, sc, xyz).
+            ``None`` means zero velocities (stationary model).
+        terms: Subset of ALL_TERMS to include.
+        retarded: Use the first-order retarded link direction
+            n = m + b_j - (b_j.m) m. If False, n = m (instantaneous).
+
+    Returns:
+        Array of shape (t, f, loc, link, pol).
+    """
+    terms = set(terms)
     k, u, v = compute_source_basis(beta, lamb)  # (loc, xyz)
+    if velocities is None:
+        velocities = np.zeros_like(positions)
 
-    index_emitter = np.array([1, 2, 0, 2, 1, 0])
-    index_receiver = np.array([0, 1, 2, 0, 2, 1])
+    # --- geometry per link: (t, link, xyz) -----------------------------
+    r_i, r_j = positions[:, LINK_RECEIVER], positions[:, LINK_EMITTER]
+    b_i = velocities[:, LINK_RECEIVER] / c
+    b_j = velocities[:, LINK_EMITTER] / c
+    db = b_i - b_j                                           # Delta beta
 
-    x_i = positions[:, index_receiver]  # receiver i
-    x_j = positions[:, index_emitter]   # emitter j
-    v_i = velocities[:, index_receiver] / c
-    v_j = velocities[:, index_emitter] / c
+    n = r_i - r_j
+    n /= np.linalg.norm(n, axis=-1, keepdims=True)           # m (instantaneous)
+    if retarded:
+        n = n + b_j - np.sum(b_j * n, axis=-1, keepdims=True) * n
+        n /= np.linalg.norm(n, axis=-1, keepdims=True)
+    ndb = np.sum(n * db, axis=-1, keepdims=True)
+    db_perp = db - ndb * n
 
-    n = x_i - x_j
-    n /= np.linalg.norm(n, axis=-1, keepdims=True)  # (t, link, xyz)
+    # --- helpers --------------------------------------------------------
+    def dot(a, e):                       # (t, link, xyz) . (loc, xyz) -> (t, loc, link)
+        return np.einsum("tij,kj->tki", a, e)
 
-    mu = np.einsum("tij,kj->tki", n, k)                 # (t, loc, link)
-    kdot_xi = np.einsum("tij,kj->tki", x_i, k)          # (t, loc, link)
-    kdot_xj = np.einsum("tij,kj->tki", x_j, k)          # (t, loc, link)
-    kdot_vi = np.einsum("tij,kj->tki", v_i, k)          # (t, loc, link)
-    kdot_vj = np.einsum("tij,kj->tki", v_j, k)          # (t, loc, link)
-    ndot_vi = np.einsum("tij,tij->ti", n, v_i)[:, None, :]  # (t,1,link)
-    ndot_vj = np.einsum("tij,tij->ti", n, v_j)[:, None, :]  # (t,1,link)
+    def zeta(w):                         # zeta_p(n, w) -> (t, loc, link, pol)
+        nu, nv, wu, wv = dot(n, u), dot(n, v), dot(w, u), dot(w, v)
+        return np.stack([nu * wu - nv * wv, nu * wv + nv * wu], axis=-1)
 
-    # velocity factors from your new equation
-    A_j = 1.0 - kdot_vj + ndot_vi
-    A_i = 1.0 - kdot_vi + (ndot_vj - 2.0 * ndot_vi)
+    X = lambda a: a[:, None, :, :, None]        # scalar (t, loc|1, link) -> (t,1,loc,link,1)
+    P = lambda a: a[:, None]                    # polarised (t, loc, link, pol) -> (t,1,loc,link,pol)
 
-    # Broadcast
-    f4 = f[None, :, None, None]            # (1,f,1,1)
-    mu4 = mu[:, None, :, :]                # (t,1,loc,link)
-    A_j4 = A_j[:, None, :, :]
-    A_i4 = A_i[:, None, :, :]
-    kdot_xi4 = kdot_xi[:, None, :, :]
-    kdot_xj4 = kdot_xj[:, None, :, :]
-    ltts4 = ltts[:, None, None, :]
+    # --- scalar products and amplitudes (computed once) -----------------
+    nk = dot(n, k)
+    kappa = 1.0 - nk
+    phi = np.arctan2(dot(n, v), dot(n, u))
+    C = 0.5 * (1.0 + nk)[..., None] * np.stack([np.cos(2 * phi), np.sin(2 * phi)], axis=-1)
 
-    phi_j = 2 * np.pi * f4 * (ltts4 + kdot_xj4 / c)
-    phi_i = 2 * np.pi * f4 * (kdot_xi4 / c)
+    kbj, kdb, kdbp = dot(b_j, k), dot(db, k), dot(db_perp, k)       # (t, loc, link)
+    nbj = np.sum(n * b_j, axis=-1)[:, None, :]                      # (t, 1, link)
+    ndb = ndb[..., 0][:, None, :]                                   # (t, 1, link)
 
-    # direct implementation of Eq. (response_kernel_db)
-    geom = (A_j4 * np.exp(-1j * phi_j) - A_i4 * np.exp(-1j * phi_i))
-    g = 0.5 * geom / (1.0 - mu4)
+    # --- phases, stable sinc form ---------------------------------------
+    x = f[None, :, None, None] * ltts[:, None, None, :] * kappa[:, None]   # DeltaPhi / 2pi
+    S = np.exp(-1j * np.pi * x) * np.sinc(x)          # e^{-i dPhi/2} sinc(dPhi/2)
+    s = -2j * np.pi * x * S                           # e^{-i dPhi} - 1
+    E = np.exp(-2j * np.pi * f[None, :, None, None] * dot(r_i, k)[:, None] / c)  # e^{-i Phi_2}
+    S, s = S[..., None], s[..., None]
 
-    xi_plus = np.einsum("tij,kj->tki", n, u) ** 2 - np.einsum("tij,kj->tki", n, v) ** 2
-    xi_cross = 2 * np.einsum("tij,kj->tki", n, u) * np.einsum("tij,kj->tki", n, v)
-    xi = np.stack([xi_plus, xi_cross], axis=-1)  # (t,loc,link,pol)
+    # --- G / e^{-i Phi_2} ------------------------------------------------
+    Cp = P(C)
+    G = np.zeros(s.shape[:-1] + (2,), dtype=complex)
+    if "stat" in terms:
+        G += Cp * s
+    if "red" in terms:
+        G += Cp * X(kdb) - X(kbj) * Cp * s
+    if "pa1" in terms:
+        G += X(nbj) * Cp * s
+    if "pa2" in terms:
+        G -= X(ndb) * Cp * (1.0 + s)
+    if "defl" in terms:
+        G -= S * (P(zeta(db_perp)) + Cp * X(kdbp))
+    if "sc" in terms:
+        G += P(zeta(db)) - P(zeta(b_j)) * s
 
-    return g[..., None] * xi[:, None]
+    return E[..., None] * G
 
 def compute_strain2x(frequencies, betas, lambs, ltts, positions, velocities=None):
     """
