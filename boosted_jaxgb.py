@@ -1,48 +1,32 @@
-"""JaxGBFull — galactic binary response with the full velocity-corrected kernel.
+"""JaxGB response with the first-order (in v/c) velocity-corrected link kernel.
 
-Replaces the Cornish–Rubbo sinc approximation in :class:`JaxGB` with the
-exact first-order-in-v/c single-link transfer function (Eq. A17 of
-arXiv:2509.10038V).
+The single-link transfer function follows Sec. II A of the paper (``main.tex``,
+Eq. ``response_kernel_db``), which rewrites Eq. (39) of arXiv:2509.10038,
 
-Background
-----------
-The parent :class:`JaxGB._construct_slow_part` implements the CR kernel:
+    G = G_stat + G_red + G_pa1 + G_pa2 + G_defl + G_sc ,
 
-    gs^CR = A_ij / (2*(1 + k̂·n̂_ij))
-            × [ exp(-i φ_tx)  −  exp(-i (Ω_tx + φ_rx)) ]
+with, for a link from the emitter j to the receiver i (C_p = xi_p / (2 kappa),
+kappa = 1 - n.k, Delta_beta = beta_i - beta_j, a = Delta_beta - (n.Delta_beta) n),
 
-This follows by algebraic expansion of the sinc formula used in the parent:
+    G_stat = C [e^{-i Phi_1} - e^{-i Phi_2}]
+    G_red  = C [beta_i.k e^{-i Phi_2} - beta_j.k e^{-i Phi_1}]
+    G_pa1  = C beta_j.n [e^{-i Phi_1} - e^{-i Phi_2}]
+    G_pa2  = -C Delta_beta.n e^{-i Phi_1}
+    G_defl = -e^{-i Phi_2} S(Delta_Phi) [zeta(n, a) + C k.a]
+    G_sc   = zeta(n, beta_i) e^{-i Phi_2} - zeta(n, beta_j) e^{-i Phi_1}
 
-    0.5j (f/f★) sinc(arg/π) exp(-i arg)
-      = (1 − exp(-2i arg)) / (2*(1 + k̂·n̂_ij))
+where Phi_1 = Phi_2 + Delta_Phi, Delta_Phi = 2 pi f L kappa / c, and
+S(x) = (1 - e^{-i x}) / (i x). All quantities are evaluated at reception time,
+except the emitter position, taken at the emission event (retarded geometry).
 
-with arg = ½ Ω_tx (1 + k̂·n̂_ij), φ_sc = ω₀ k̂·x_sc/c − arg_s the
-heterodyned position phase, and Ω_tx = ω_gw(ξ_tx) L/c the arm-length
-phase at the transmitter retarded time.
-
-The full kernel (Eq. A17) replaces the unit velocity brackets with first-
-order corrections:
-
-    gs^full = A_ij / (2*(1 + k̂·n̂_ij))
-              × [ B_tx · exp(-i φ_tx)  −  B_rx · exp(-i (Ω_tx + φ_rx)) ]
-
-    B_rx = 1 − k̂·v_j  +  n̂_ij·v_i        (receiver bracket)
-    B_tx = 1 − k̂·v_i  +  n̂_ij·(v_j−2v_i) (transmitter bracket)
-
-where v_i, v_j are the transmitter / receiver velocities in units of c
-(dimensionless).  Setting v = 0 recovers gs^CR exactly.
-
-Sign conventions (matching the parent throughout)
-    • k̂  points FROM source TOWARD detector (wave propagation direction).
-    • n̂_ij = (x_rx − x_tx)/L  points from transmitter to receiver.
-    • Denominator reads  (1 + k̂·n̂_ij).  This is equivalent to
-      (1 − k̂_paper·n̂_paper) in arXiv:2509.10038V, which uses the
-      opposite conventions for both vectors (k̂_paper = −k̂, and n̂_paper
-      from rx to tx).
+Conventions are those of :mod:`jaxgb`: k is the GW propagation direction,
+n_ij points from the emitter j to the receiver i, and links are ordered
+(12, 23, 31, 13, 32, 21).
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 import jax
@@ -56,6 +40,38 @@ if TYPE_CHECKING:
 # Adjust to your project layout, e.g. from lisagwresponse.jaxgb import JaxGB
 from jaxgb.jaxgb import JaxGB
 from jaxgb.tdi import to_tdi_combination, to_tdi_generation
+
+#: Terms of the single-link kernel (see the module docstring).
+ALL_TERMS = ("stat", "red", "pa1", "pa2", "defl", "sc")
+
+#: Links ordered (12, 23, 31, 13, 32, 21); link ij goes from j (emitter) to i (receiver).
+LINK_RECEIVER = np.array([0, 1, 2, 0, 2, 1])
+LINK_EMITTER = np.array([1, 2, 0, 2, 1, 0])
+
+
+def _active_terms(model) -> set[str]:
+    """Terms to include for ``model``, honouring the legacy ``include_*`` flags."""
+    terms = getattr(model, "terms", None)
+    terms = set(ALL_TERMS if terms is None else terms)
+    if not getattr(model, "include_sc_motion", True):
+        terms.discard("sc")
+    if not getattr(model, "include_lensing", True):
+        terms.discard("defl")
+    return terms
+
+
+def _xi_over_kappa(xi: jax.Array, nk: jax.Array, n_perp_sq: jax.Array) -> jax.Array:
+    """Regular evaluation of xi_p / kappa for polarisation-weighted ``xi``.
+
+    ``xi`` is proportional to ``|n_perp|^2 = kappa (1 + n.k)``, so the ratio is
+    finite for ``n -> k``: xi / kappa = (1 + n.k) xi / |n_perp|^2. It is
+    returned as 0 at exactly ``n = k`` (the limit depends on the direction of
+    approach), and the guard keeps gradients finite.
+    """
+    ok = n_perp_sq > 1e-30
+    safe = jnp.where(ok, n_perp_sq, 1.0)
+    return jnp.where(ok, (1.0 + nk) * xi / safe, 0.0)
+
 
 def _add_to(tdi_one, tdi_sum, kmin_arr, kmax, n):
     def _update_fpoint(idx, val):
@@ -73,12 +89,11 @@ def _add_to(tdi_one, tdi_sum, kmin_arr, kmax, n):
 vadd = jax.vmap(_add_to, in_axes=(0,0,0,None,None))
 
 class JaxGBFull(JaxGB):
-    """Galactic binary response with the velocity-corrected two-exponential kernel.
+    """Galactic binary response with the velocity-corrected single-link kernel.
 
-    Drop-in replacement for :class:`JaxGB`.  Only
-    :meth:`_construct_slow_part` is overridden; all public methods
-    (:meth:`get_link_responses`, :meth:`get_tdi`, …) are inherited
-    unchanged.
+    Drop-in replacement for :class:`JaxGB`. It supplies retarded link geometry
+    and overrides :meth:`_construct_slow_part`; public response methods remain
+    inherited from JaxGB.
 
     Parameters
     ----------
@@ -90,6 +105,13 @@ class JaxGBFull(JaxGB):
         Start time (s).
     n
         Number of slow-response evaluation points (even integer).
+    old_implementation
+        Use the parent JaxGB kernel for baseline comparisons.
+    include_sc_motion, include_lensing
+        Switch off ``G_sc`` and ``G_defl``, respectively. Both default to True.
+    terms
+        Subset of :data:`ALL_TERMS` to include (default: all). ``("stat",)``
+        gives the stationary kernel evaluated with the retarded geometry.
     """
 
     def __init__(
@@ -101,9 +123,18 @@ class JaxGBFull(JaxGB):
         n: int = 128,
         window: str | tuple | jax.Array | None = "boxcar",
         old_implementation: bool = False,  # for testing only
+        include_sc_motion: bool = True,
+        include_lensing: bool = True,
+        terms: Iterable[str] | None = None,
     ) -> None:
         super().__init__(orbits, t_obs=t_obs, t0=t0, n=n, window=window)
         self.old_implementation = old_implementation
+        self.include_sc_motion = include_sc_motion
+        self.include_lensing = include_lensing
+        self.terms = None if terms is None else tuple(terms)
+        unknown = set(ALL_TERMS if terms is None else terms) - set(ALL_TERMS)
+        if unknown:
+            raise ValueError(f"unknown kernel terms {sorted(unknown)}; use {ALL_TERMS}")
 
         self.velocity = (
             self.orbits.compute_velocity(self.t0 + self.tm, [1, 2, 3])
@@ -111,11 +142,21 @@ class JaxGBFull(JaxGB):
             .swapaxes(1, 2)
         ) / c  # (3, 3, n)
 
-        self.ltts = self.orbits.compute_ltt(self.t0 + self.tm)
+        self.ltts = self.orbits.compute_ltt(self.t0 + self.tm)  # (n, 6)
+        if self.old_implementation:
+            self.position_emit = None
+        else:
+            transmitter_sc = np.array([1, 2, 0, 2, 1, 0])
+            emission_times = (
+                self.t0 + self.tm[:, None] - np.asarray(self.ltts)
+            )
+            self.position_emit = self.orbits.compute_position(
+                emission_times, transmitter_sc + 1
+            ).transpose(1, 2, 0)  # (6, 3, n), emitter evaluated at emission
 
         if self.old_implementation:
             print(
-                "WARNING: JaxGBFull velocity corrections are disabled. "
+                "WARNING: JaxGBFull uses the parent JaxGB response. "
                 "This option is for testing only."
             )
 
@@ -146,77 +187,99 @@ class JaxGBFull(JaxGB):
         jax.Array, shape (nsrc, 6, n)
             Slow heterodyned link responses.
             Link order: ``[12, 23, 31, 13, 32, 21]``.
+
+        Notes
+        -----
+        Following ``main.tex``, each link (receiver i, emitter j) is written as
+        ``gs = e^{-i Phi_2} [G_stat + G_red + ...] / e^{-i Phi_2}`` with
+        ``e^{-i Phi_2}`` the heterodyned GW phase at the receiver, and
+        ``e^{-i Phi_1} = e^{-i Phi_2} (1 + s)`` where
+        ``s = e^{-i Delta_Phi} - 1 = -2 i alpha S`` is evaluated through the
+        sinc form (no cancellation for ``f -> 0`` or ``kappa -> 0``);
+        ``alpha = Delta_Phi / 2``. The emitter position is taken at the emission
+        time (``position_emit``), so that ``L = c * ltt`` and
+        ``r_i - L n = r_j(t - L / c)``. The orbital velocities are those at
+        reception time and are assumed constant over the light travel time.
         """
+        if self.old_implementation:
+            return super()._construct_slow_part(
+                f0_fdot_phi0, k, apac_ssb, epec_ssb
+            )
+        terms = _active_terms(self)
+
         f0, fdot, phi0 = f0_fdot_phi0[:, 0], f0_fdot_phi0[:, 1], f0_fdot_phi0[:, 2]
-        receiver_sc = jnp.array([0, 1, 2, 0, 2, 1])
-        transmitter_sc = jnp.array([1, 2, 0, 2, 0, 1])
+        k_s = k.T  # (nsrc, 3)
 
-        # JaxGB 0.2.2 defines r as receiver position minus transmitter position.
-        # Its three independent arms are ordered 12, 23, 31; reverse them to
-        # obtain the six directed links in the public output order.
-        r = jnp.concatenate((self.r, -self.r[::-1]), axis=0)
-        kdotr = jnp.einsum("sx,lxt->slt", k.T, r)
+        # --- geometry of the photon path: n_ij and betas, shapes (6, 3, n) ---
+        r_i = self.position[LINK_RECEIVER]
+        r_j = jnp.asarray(self.position_emit)  # emitter at emission
+        n = r_i - r_j
+        n = n / jnp.linalg.norm(n, axis=1, keepdims=True)  # n_ij
+        beta = jnp.asarray(self.velocity)  # (3, 3, n), beta_I = v_I / c
+        beta_i, beta_j = beta[LINK_RECEIVER], beta[LINK_EMITTER]
+        delta_beta = beta_i - beta_j
+        a = delta_beta - n * jnp.sum(n * delta_beta, axis=1, keepdims=True)
 
-        kdotp_raw = jnp.einsum("sx,cxt->sct", k.T, self.position) / c
-        xi = self.tm[None, None, :] - kdotp_raw
-        fi = f0[:, None, None] + fdot[:, None, None] * xi
-        fonfs = fi[:, receiver_sc, :] / self.fstar
-
+        # --- polarisation-weighted tensor and scalar products (once) ---------
         eplus, ecross = epec_ssb
-        a_ij = (
-            jnp.einsum("sij,ljt->slit", eplus, r)
-            * r[None, :, :, :]
-            * apac_ssb[0][:, None, None, None]
-            + jnp.einsum("sij,ljt->slit", ecross, r)
-            * r[None, :, :, :]
-            * apac_ssb[1][:, None, None, None]
-        ).sum(axis=2)
+        h_ab = (
+            apac_ssb[0][:, None, None] * eplus + apac_ssb[1][:, None, None] * ecross
+        )  # sum_p A_p e^p_ab, shape (nsrc, 3, 3)
+        h_n = jnp.einsum("sij,ljt->slit", h_ab, n)  # (nsrc, 6, 3, n)
 
+        def zeta(w):
+            """sum_p A_p zeta_p(n, w); zeta(n) is the sum_p A_p xi_p."""
+            return jnp.einsum("slit,lit->slt", h_n, w)
+
+        def dot_k(w):
+            return jnp.einsum("sx,lxt->slt", k_s, w)
+
+        nk = dot_k(n)  # n.k
+        n_perp = n[None] - nk[:, :, None, :] * k_s[:, None, :, None]
+        c_p = 0.5 * _xi_over_kappa(
+            zeta(n), nk, jnp.sum(n_perp**2, axis=2)
+        )  # C = xi / (2 kappa), summed over polarisations
+
+        # --- phases ------------------------------------------------------------
+        kdotp = dot_k(self.position) / c  # k.r_I / c, (nsrc, 3, n)
+        xi_wave = self.tm[None, None, :] - kdotp
+        f_rx = (f0[:, None, None] + fdot[:, None, None] * xi_wave)[:, LINK_RECEIVER]
         q = jnp.rint(f0 * self.t_obs)
         df = 2.0 * np.pi * (q / self.t_obs)
         om = 2.0 * np.pi * f0
-        arg_s = (
-            -phi0[:, None] + (om - df)[:, None] * self.tm[None, :]
-        )[:, None, :] + np.pi * fdot[:, None, None] * xi**2
-        phase = om[:, None, None] * kdotp_raw - arg_s
-        phase_rx = phase[:, receiver_sc, :]
+        arg_s = (-phi0[:, None] + (om - df)[:, None] * self.tm[None, :])[
+            :, None, :
+        ] + np.pi * fdot[:, None, None] * xi_wave**2
+        phase_rx = (om[:, None, None] * kdotp - arg_s)[:, LINK_RECEIVER]  # Phi_2
+        e_rx = jnp.exp(-1j * phase_rx)  # e^{-i Phi_2}
 
-        alpha = 0.5 * fonfs * (1.0 - kdotr)
-        denominator = 1.0 - kdotr
+        ltt = jnp.asarray(self.ltts).T  # (6, n), L / c
+        omega_ltt = 2.0 * np.pi * f_rx * ltt[None]  # 2 pi f L / c
+        alpha = 0.5 * omega_ltt * (1.0 - nk)  # Delta_Phi / 2
+        s_fac = jnp.sinc(alpha / np.pi) * jnp.exp(-1j * alpha)  # S(Delta_Phi)
+        s = -2.0j * alpha * s_fac  # e^{-i Delta_Phi} - 1
+        e_tx = 1.0 + s  # e^{-i Phi_1} / e^{-i Phi_2}
 
-        velocity = jnp.asarray(self.velocity)
-        kdotv = jnp.einsum("sx,xct->sct", k.T, velocity)
-        kdotv_tx = kdotv[:, transmitter_sc, :]
-        kdotv_rx = kdotv[:, receiver_sc, :]
-        ndotv_tx = (r * velocity[transmitter_sc]).sum(axis=1)
-        ndotv_rx = (r * velocity[receiver_sc]).sum(axis=1)
+        kb_i, kb_j = dot_k(beta_i), dot_k(beta_j)  # k.beta_I
+        nb_j = jnp.sum(n * beta_j, axis=1)[None]  # n.beta_j
+        ndb = jnp.sum(n * delta_beta, axis=1)[None]  # n.Delta_beta
 
-        b_rx = 1.0 - kdotv_tx + ndotv_rx[None, :, :]
-        b_tx = (
-            1.0
-            - kdotv_rx
-            + (ndotv_tx - 2.0 * ndotv_rx)[None, :, :]
-        )
-        if self.old_implementation:
-            b_tx = jnp.ones_like(b_tx)
-            b_rx = jnp.ones_like(b_rx)
+        # --- G / e^{-i Phi_2} ---------------------------------------------------
+        g = jnp.zeros_like(alpha, dtype=complex)
+        if "stat" in terms:  # C [e^{-i Phi_1} - e^{-i Phi_2}] = C s
+            g += -0.5j * zeta(n) * omega_ltt * s_fac
+        if "red" in terms:  # C [beta_i.k - beta_j.k e^{-i Delta_Phi}]
+            g += c_p * (kb_i - kb_j * e_tx)
+        if "pa1" in terms:  # C beta_j.n [e^{-i Delta_Phi} - 1]
+            g += c_p * nb_j * s
+        if "pa2" in terms:  # -C Delta_beta.n e^{-i Delta_Phi}
+            g -= c_p * ndb * e_tx
+        if "defl" in terms:  # -S [zeta(n, a) + C k.a]
+            g -= s_fac * (zeta(a) + c_p * dot_k(a))
+        if "sc" in terms:  # zeta(n, beta_i) - zeta(n, beta_j) e^{-i Delta_Phi}
+            g += zeta(beta_i) - zeta(beta_j) * e_tx
 
-        base_response = (
-            -0.5j
-            * a_ij
-            * fonfs
-            * jnp.sinc(alpha / np.pi)
-            * jnp.exp(-1j * (alpha + phase_rx))
-        )
-        velocity_correction = (
-            -a_ij
-            / (2.0 * denominator)
-            * (
-                (b_tx - 1.0) * jnp.exp(-1j * phase_rx)
-                - (b_rx - 1.0) * jnp.exp(-1j * (2.0 * alpha + phase_rx))
-            )
-        )
-        return base_response + velocity_correction
+        return e_rx * g  # (nsrc, 6, n)
     
     def get_data_minus_template(
         self,
