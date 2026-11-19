@@ -597,7 +597,7 @@ def _link_response_boosted(
 
     return E[..., None] * G
 
-def compute_strain2x(frequencies, betas, lambs, ltts, positions, velocities=None):
+def compute_strain2x(frequencies, betas, lambs, ltts, positions, velocities=None, terms=ALL_TERMS):
     """
     Compute the strain2x matrix for given frequencies, sky locations, and orbits.
 
@@ -623,7 +623,7 @@ def compute_strain2x(frequencies, betas, lambs, ltts, positions, velocities=None
     """
     # Compute the complex signal response for the given frequencies and sky locations
     if velocities is not None:
-        strain2link = _link_response_boosted(frequencies, betas, lambs, ltts, positions, velocities)
+        strain2link = _link_response_boosted(frequencies, betas, lambs, ltts, positions, velocities, terms=terms)
     else:
         # methods "baghi+23" and "hartwig+23" are available, the latter is more accurate but also more computationally expensive
         strain2link = compute_strain2link(frequencies, betas, lambs, ltts, positions, method="baghi+23")

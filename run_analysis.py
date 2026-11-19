@@ -87,7 +87,7 @@ if run_flag == 'evolving':
                                 interp_order=3)
 
 if args.quick_run:
-    N = 10  # Limit the number of perturbations for a quick run
+    N = 100  # Limit the number of perturbations for a quick run
 # ---------------------------------------------------------------------------
 # Nominal orbit quantities
 # ---------------------------------------------------------------------------
