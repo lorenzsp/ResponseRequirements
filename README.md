@@ -4,7 +4,7 @@
 
 ## Overview
 
-This repository contains computational tools for quantifying **uncertainties and mismodeling** in the gravitational wave response of the **Laser Interferometer Space Antenna (LISA)**—a space-based gravitational wave observatory planned for the mid-2030s. If you use this code or data in your research, please cite the [accompanying paper](#citation).
+This repository contains computational tools for quantifying **uncertainties and mismodeling** in the gravitational wave response of the **Laser Interferometer Space Antenna (LISA)**—a space-based gravitational wave observatory planned for the mid-2030s. If you use this code or data in your research, please cite the [accompanying paper](#citation). **Note that the arxiv version has a bug in the expressions, it will be updated soon**. Please check the [notebook](ResponseApprox.ipynb) for the latest expressions.
 
 ### Key Research Questions
 
