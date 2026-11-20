@@ -22,6 +22,12 @@ except the emitter position, taken at the emission event (retarded geometry).
 Conventions are those of :mod:`jaxgb`: k is the GW propagation direction,
 n_ij points from the emitter j to the receiver i, and links are ordered
 (12, 23, 31, 13, 32, 21).
+
+The kernel in :meth:`JaxGBFull._construct_slow_part` was checked against the
+segwo single-link kernel (``_link_response_boosted``, same equations) for every
+term separately and for the sum: agreement to ~1e-10 of the stationary term,
+the residual being the O(beta^2) difference between the exact retarded
+direction used here and the first-order expression used in segwo.
 """
 
 from __future__ import annotations
@@ -39,7 +45,6 @@ if TYPE_CHECKING:
 
 # Adjust to your project layout, e.g. from lisagwresponse.jaxgb import JaxGB
 from jaxgb.jaxgb import JaxGB
-from jaxgb.tdi import to_tdi_combination, to_tdi_generation
 
 #: Terms of the single-link kernel (see the module docstring).
 ALL_TERMS = ("stat", "red", "pa1", "pa2", "defl", "sc")
@@ -73,20 +78,22 @@ def _xi_over_kappa(xi: jax.Array, nk: jax.Array, n_perp_sq: jax.Array) -> jax.Ar
     return jnp.where(ok, (1.0 + nk) * xi / safe, 0.0)
 
 
-def _add_to(tdi_one, tdi_sum, kmin_arr, kmax, n):
-    def _update_fpoint(idx, val):
-        _mask = ((idx + kmin_arr) >= 0) & ((idx + kmin_arr) < kmax)
-        return jax.lax.dynamic_update_index_in_dim(
-            val,
-            val[:, idx + kmin_arr] + _mask * tdi_sum[:, idx],
-            idx + kmin_arr,
-            axis=1,
-        )
+def _add_to(tdi_one: jax.Array, tdi_sum: jax.Array, kmin_off: jax.Array, n: int):
+    """Add ``tdi_sum`` (3, n) to the window ``tdi_one`` (3, nf) starting at bin ``kmin_off``.
+
+    Bins of ``tdi_sum`` falling outside ``[0, nf)`` are dropped. The indices are
+    clipped before the scatter (JAX clamps out-of-range indices and wraps negative
+    ones), and the dropped samples are zeroed, so that nothing is written to the
+    edge bins.
+    """
+    nf = tdi_one.shape[-1]
+    idx = jnp.arange(n) + kmin_off
+    valid = (idx >= 0) & (idx < nf)
+    return tdi_one.at[:, jnp.clip(idx, 0, nf - 1)].add(jnp.where(valid, tdi_sum, 0.0))
 
 
-    return jax.lax.fori_loop(0, n, _update_fpoint, tdi_one)
+vadd = jax.vmap(_add_to, in_axes=(0, 0, 0, None))
 
-vadd = jax.vmap(_add_to, in_axes=(0,0,0,None,None))
 
 class JaxGBFull(JaxGB):
     """Galactic binary response with the velocity-corrected single-link kernel.
@@ -107,9 +114,21 @@ class JaxGBFull(JaxGB):
         Number of slow-response evaluation points (even integer).
     old_implementation
         Use the parent JaxGB kernel for baseline comparisons.
+    include_sc_motion, include_lensing
+        Switch off ``G_sc`` and ``G_defl``, respectively. Both default to True.
     terms
         Subset of :data:`ALL_TERMS` to include (default: all). ``("stat",)``
-        gives the stationary kernel evaluated with the retarded geometry.
+        gives the stationary kernel evaluated with the geometry selected by
+        ``retarded``.
+    retarded
+        If True (default), the link direction ``n_ij`` is built from the emitter
+        position at the emission event, ``r_j(t - L_ij / c)``. If False, the
+        instantaneous separation ``r_i(t) - r_j(t)`` is used, as for stationary
+        spacecraft (same meaning as the ``retarded`` flag of segwo's
+        ``_link_response_boosted``). With zero velocities and ``retarded=False``
+        the kernel reduces to the stationary response of Baghi et al. Note that
+        the retarded geometry comes from the orbit positions, not from the
+        velocities, so ``retarded=True`` is kept even if all ``beta`` were zero.
     """
 
     def __init__(
@@ -122,9 +141,11 @@ class JaxGBFull(JaxGB):
         window: str | tuple | jax.Array | None = "boxcar",
         old_implementation: bool = False,  # for testing only
         terms: Iterable[str] | None = None,
+        retarded: bool = True,
     ) -> None:
         super().__init__(orbits, t_obs=t_obs, t0=t0, n=n, window=window)
         self.old_implementation = old_implementation
+        self.retarded = retarded
         self.terms = None if terms is None else tuple(terms)
         unknown = set(ALL_TERMS if terms is None else terms) - set(ALL_TERMS)
         if unknown:
@@ -134,25 +155,32 @@ class JaxGBFull(JaxGB):
             self.orbits.compute_velocity(self.t0 + self.tm, [1, 2, 3])
             .swapaxes(0, 1)
             .swapaxes(1, 2)
-        ) / c  # (3, 3, n)
+        ) / c  # (3, 3, n), beta_I = v_I / c at reception time
 
         self.ltts = self.orbits.compute_ltt(self.t0 + self.tm)  # (n, 6)
-        if self.old_implementation:
+        if self.old_implementation or not self.retarded:
             self.position_emit = None
-        else:
-            transmitter_sc = np.array([1, 2, 0, 2, 1, 0])
-            emission_times = (
-                self.t0 + self.tm[:, None] - np.asarray(self.ltts)
-            )
-            self.position_emit = self.orbits.compute_position(
-                emission_times, transmitter_sc + 1
-            ).transpose(1, 2, 0)  # (6, 3, n), emitter evaluated at emission
-
         if self.old_implementation:
             print(
                 "WARNING: JaxGBFull uses the parent JaxGB response. "
                 "This option is for testing only."
             )
+        elif self.retarded:
+            self.position_emit = self._emission_positions()  # (6, 3, n)
+
+    def _emission_positions(self) -> np.ndarray:
+        """Emitter position at the emission event, r_j(t - L_ij / c), shape (6, 3, n).
+
+        One call per link with a 1-D time vector (as in ``JaxGBaccurate``), which does
+        not rely on any broadcasting convention of ``orbits.compute_position``.
+        """
+        ltts = np.asarray(self.ltts)  # (n, 6)
+        out = []
+        for link, emitter in enumerate(LINK_EMITTER):
+            t_emit = self.t0 + self.tm - ltts[:, link]
+            pos = np.asarray(self.orbits.compute_position(t_emit, [int(emitter) + 1]))
+            out.append(pos.reshape(self.n, 3).T)  # (3, n)
+        return np.stack(out)
 
     # ------------------------------------------------------------------
 
@@ -191,14 +219,13 @@ class JaxGBFull(JaxGB):
         ``s = e^{-i Delta_Phi} - 1 = -2 i alpha S`` is evaluated through the
         sinc form (no cancellation for ``f -> 0`` or ``kappa -> 0``);
         ``alpha = Delta_Phi / 2``. The emitter position is taken at the emission
-        time (``position_emit``), so that ``L = c * ltt`` and
-        ``r_i - L n = r_j(t - L / c)``. The orbital velocities are those at
+        time (``position_emit``) if ``retarded`` (default), so that ``L = c * ltt``
+        and ``r_i - L n = r_j(t - L / c)``; with ``retarded=False`` the instantaneous
+        separation defines ``n``, while ``L = c * ltt`` is kept. The orbital velocities are those at
         reception time and are assumed constant over the light travel time.
         """
         if self.old_implementation:
-            return super()._construct_slow_part(
-                f0_fdot_phi0, k, apac_ssb, epec_ssb
-            )
+            return super()._construct_slow_part(f0_fdot_phi0, k, apac_ssb, epec_ssb)
         terms = _active_terms(self)
 
         f0, fdot, phi0 = f0_fdot_phi0[:, 0], f0_fdot_phi0[:, 1], f0_fdot_phi0[:, 2]
@@ -206,7 +233,10 @@ class JaxGBFull(JaxGB):
 
         # --- geometry of the photon path: n_ij and betas, shapes (6, 3, n) ---
         r_i = self.position[LINK_RECEIVER]
-        r_j = jnp.asarray(self.position_emit)  # emitter at emission
+        if self.retarded:
+            r_j = jnp.asarray(self.position_emit)  # emitter at emission
+        else:
+            r_j = self.position[LINK_EMITTER]  # instantaneous emitter position
         n = r_i - r_j
         n = n / jnp.linalg.norm(n, axis=1, keepdims=True)  # n_ij
         beta = jnp.asarray(self.velocity)  # (3, 3, n), beta_I = v_I / c
@@ -273,43 +303,44 @@ class JaxGBFull(JaxGB):
         if "sc" in terms:  # zeta(n, beta_i) - zeta(n, beta_j) e^{-i Delta_Phi}
             g += zeta(beta_i) - zeta(beta_j) * e_tx
 
+        self._phase_rx = phase_rx  # kept for tests: gs * exp(1j * phase_rx) = G / e^{-i Phi_2}
         return e_rx * g  # (nsrc, 6, n)
-    
+
+    # ------------------------------------------------------------------
+
     def get_data_minus_template(
         self,
         params: jax.Array,
         data: jax.Array,
-        kmin: int | None = None,
+        kmin: int,
         kmax: int | None = None,
-        t_init: float = None,
         **kwargs,
     ) -> jnp.ndarray:
-        """
-        Compute data minus template
-        
+        """Data minus template, for data windowed to the bins ``[kmin, kmax)``.
+
         Parameters
         ----------
-        params : jax.Array
-            Physical parameters (8,) or (n_sources, 8)
+        params : jax.Array, shape (n_walkers, 8)
+            Source parameters.
+        data : jax.Array, shape (n_walkers, 3, N_freq)
+            Data in the band ``[kmin, kmax)``, ``N_freq = kmax - kmin``.
         kmin : int
-            Minimum frequency index
-        kmax : int
-            Maximum frequency index
-        t_init : float, optional
-            Initialization time
-            
+            Absolute index of the first frequency bin of ``data``.
+        kmax : int, optional
+            Unused (the window length is taken from ``data``); kept for API
+            compatibility.
+        **kwargs
+            Forwarded to :meth:`get_tdi`.
+
         Returns
         -------
-        loglike : jnp.ndarray
-            Log-likelihood value
+        jnp.ndarray, shape (n_walkers, 3, N_freq)
+            ``data - template``; template bins outside the window are dropped.
         """
         kmins = self.get_kmin(f0=params[:, 0])
-
-        # Compute residual: data - sum(templates)
-        _x, _y, _z = self.get_tdi(params,**kwargs)
-        templates = -jnp.stack([_x, _y, _z],axis=1)
-        
-        return vadd(data, templates, kmins-kmin, kmax, self.n)
+        _x, _y, _z = self.get_tdi(params, **kwargs)
+        templates = -jnp.stack([_x, _y, _z], axis=1)  # (n_walkers, 3, n)
+        return vadd(data, templates, kmins - kmin, self.n)
 
     # ------------------------------------------------------------------
 
@@ -319,7 +350,7 @@ class JaxGBFull(JaxGB):
         h2: jax.Array,
         inv_cov: jax.Array,
     ) -> jax.Array:
-        """Noise-weighted inner product  <h1 | h2> = 4 Re[∑_f h1†·S⁻¹·h2] Δf.
+        """Noise-weighted inner product  <h1 | h2> = 4 Re[sum_f h1^dagger S^-1 h2] Delta f.
 
         Parameters
         ----------
@@ -334,7 +365,6 @@ class JaxGBFull(JaxGB):
             Real inner product per batch entry.
         """
         df = 1.0 / self.t_obs
-        # h1, h2: (N_batch, 3, N_freq), inv_cov: (N_freq, 3, 3) → (N_batch,)
         return 4.0 * jnp.einsum("bcf,fcd,bdf->b", h1.conj(), inv_cov, h2).real * df
 
     # ------------------------------------------------------------------
@@ -349,7 +379,7 @@ class JaxGBFull(JaxGB):
         max_batch_size: int | None = None,
         **kwargs,
     ) -> jnp.ndarray:
-        """Per-walker log-likelihood  -½ <d−h | d−h>.
+        """Per-walker log-likelihood  -1/2 <d-h | d-h>.
 
         Parameters
         ----------
@@ -388,7 +418,6 @@ class JaxGBFull(JaxGB):
             )
 
         d_m_h = self.get_data_minus_template(params, data, kmin, kmax, **kwargs)
-        # d_m_h: (N_batch, 3, N_freq) — matches inner_product convention directly
         results = -0.5 * self.inner_product(d_m_h, d_m_h, inv_cov)
         return results[:n_actual]
 
@@ -401,7 +430,12 @@ class JaxGBFull(JaxGB):
         inv_cov: jax.Array,
         maximise_phase: bool = False,
     ) -> jax.Array:
-        """Phase-maximised mismatch  1 − |<h1|h2>| / √(<h1|h1> <h2|h2>).
+        """Mismatch  1 - Re<h1|h2> / sqrt(<h1|h1><h2|h2>), optionally phase-maximised.
+
+        Evaluated as ``1/2 <d - s | d - s>`` with the unit-normalised templates
+        ``d = h1 / |h1|``, ``s = h2 / |h2|``, which equals ``1 - Re<d|s>`` exactly but
+        is free of the ``~1e-16`` cancellation floor of the naive expression (needed
+        for the mismatches of 1e-13 and below of orbit-uncertainty studies).
 
         Parameters
         ----------
@@ -411,21 +445,19 @@ class JaxGBFull(JaxGB):
         inv_cov : jax.Array, shape ``(N_freq, 3, 3)``
             Inverse noise covariance per frequency bin.
         maximise_phase : bool, optional
-            If True, the inner product is taken in absolute value to maximise
-            over any overall phase offset between the two templates.
+            If True, ``h2`` is first rotated by the overall phase that maximises
+            the overlap, i.e. ``1 - |<h1|h2>| / sqrt(<h1|h1><h2|h2>)`` is returned.
 
         Returns
         -------
         jax.Array, shape ``(N_batch,)``
-            Phase-maximised mismatch per batch entry.
+            Mismatch per batch entry.
         """
         df = 1.0 / self.t_obs
-        # h1, h2: (N_batch, 3, N_freq), inv_cov: (N_freq, 3, 3) → (N_batch,)
-        h1h2 = 4.0 * jnp.einsum("bcf,fcd,bdf->b", h1.conj(), inv_cov, h2) * df
-        h1h1 = 4.0 * jnp.einsum("bcf,fcd,bdf->b", h1.conj(), inv_cov, h1).real * df
-        h2h2 = 4.0 * jnp.einsum("bcf,fcd,bdf->b", h2.conj(), inv_cov, h2).real * df
+        ip = lambda a, b: 4.0 * jnp.einsum("bcf,fcd,bdf->b", a.conj(), inv_cov, b) * df
+        d = h1 / jnp.sqrt(ip(h1, h1).real)[:, None, None]
+        s = h2 / jnp.sqrt(ip(h2, h2).real)[:, None, None]
         if maximise_phase:
-            h1h2 = jnp.abs(h1h2)
-        else:
-            h1h2 = h1h2.real
-        return 1.0 - (h1h2 / jnp.sqrt(h1h1 * h2h2))
+            s = s * jnp.exp(-1j * jnp.angle(ip(d, s)))[:, None, None]
+        diff = d - s
+        return 0.5 * ip(diff, diff).real
