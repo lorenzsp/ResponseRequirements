@@ -107,8 +107,6 @@ class JaxGBFull(JaxGB):
         Number of slow-response evaluation points (even integer).
     old_implementation
         Use the parent JaxGB kernel for baseline comparisons.
-    include_sc_motion, include_lensing
-        Switch off ``G_sc`` and ``G_defl``, respectively. Both default to True.
     terms
         Subset of :data:`ALL_TERMS` to include (default: all). ``("stat",)``
         gives the stationary kernel evaluated with the retarded geometry.
@@ -123,14 +121,10 @@ class JaxGBFull(JaxGB):
         n: int = 128,
         window: str | tuple | jax.Array | None = "boxcar",
         old_implementation: bool = False,  # for testing only
-        include_sc_motion: bool = True,
-        include_lensing: bool = True,
         terms: Iterable[str] | None = None,
     ) -> None:
         super().__init__(orbits, t_obs=t_obs, t0=t0, n=n, window=window)
         self.old_implementation = old_implementation
-        self.include_sc_motion = include_sc_motion
-        self.include_lensing = include_lensing
         self.terms = None if terms is None else tuple(terms)
         unknown = set(ALL_TERMS if terms is None else terms) - set(ALL_TERMS)
         if unknown:
